@@ -1,0 +1,23 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>VALE Connect | Public Card Preview</title><style>
+:root{font-family:system-ui,Arial,sans-serif;color:#f5f0e6;background:#10151c}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px}.card{max-width:480px;width:100%;border:1px solid #ad873d;border-radius:20px;background:#1b222b;padding:30px;box-shadow:0 15px 60px #0007}h1{font-size:28px;margin:0 0 4px}.brand{color:#d9ae52;font-size:12px;letter-spacing:.2em;margin-bottom:24px}.muted{color:#b6bdc6}a{color:#e7bd68;overflow-wrap:anywhere}.links{display:grid;gap:12px;margin-top:20px}.links a{padding:12px;border:1px solid #6b592e;border-radius:10px;text-decoration:none}p{line-height:1.6;white-space:pre-wrap}small{color:#aab2bb}</style></head><body><main class="card"><div class="brand">VALE CONNECT · BEYOND THE BUSINESS CARD</div><div id="status" role="status">Loading public card…</div><section id="profile" hidden><h1 id="name"></h1><div id="title" class="muted"></div><div id="company"></div><p id="intro"></p><div class="links" id="links"></div></section><hr style="border:0;border-top:1px solid #ffffff25;margin-top:25px"><small>Powered by VALE Connect</small></main><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script><script>
+(async()=>{'use strict';
+const $=id=>document.getElementById(id);
+const slug=new URLSearchParams(location.search).get('u')||'';
+if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||slug.length<3||slug.length>60){$('status').textContent='Invalid card link.';return}
+if(!window.supabase){$('status').textContent='Connection unavailable. Try again later.';return}
+const client=window.supabase.createClient('https://jlprxnmdvoloahssjlnu.supabase.co','sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_');
+try{
+ const {data,error}=await client.from('public_cards').select('display_name,job_title,business_name,introduction,public_email,public_phone,website,social_links').eq('slug',slug).eq('published',true).maybeSingle();
+ if(error)throw error;
+ if(!data){$('status').textContent='This card is not available.';return}
+ $('name').textContent=data.display_name;$('title').textContent=data.job_title;$('company').textContent=data.business_name;$('intro').textContent=data.introduction;
+ const add=(label,href)=>{const a=document.createElement('a');a.textContent=label;a.href=href;a.target='_blank';a.rel='noopener noreferrer';$('links').append(a)};
+ if(data.public_email)add('Email','mailto:'+encodeURIComponent(data.public_email));
+ if(data.public_phone)add('Call','tel:'+data.public_phone.replace(/[^+\d]/g,''));
+ const safeURL=(s)=>{try{const u=new URL(s);return ['https:','http:'].includes(u.protocol)?u.href:null}catch{return null}};
+ if(data.website){const u=safeURL(data.website);if(u)add('Website',u)}
+ for(const line of (data.social_links||'').split('\n')){const [label,...parts]=line.split('|');const u=safeURL(parts.join('|').trim());if(label&&u)add(label.trim(),u)}
+ $('status').hidden=true;$('profile').hidden=false;document.title=data.display_name+' | VALE Connect';
+}catch(e){$('status').textContent='Unable to load card. Check that public cards are configured.';console.error('Public card load failed',e)}
+})();
+</script></body></html>
