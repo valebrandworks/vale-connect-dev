@@ -10,7 +10,7 @@
  const discard=()=>!editing()||confirm('Discard unsaved edits in the cloud connection editor? Saved connections will not be deleted.');
  function controls(){
   $('cloud-contacts-login').hidden=!!user;$('cloud-contacts-workspace').hidden=!user;
-  for(const id of ['cloud-contacts-new','cloud-contacts-refresh','cloud-contacts-review','cloud-contacts-save','cloud-contacts-import'])$(id).disabled=busy||!user;
+  for(const id of ['cloud-contacts-new','cloud-contacts-refresh','cloud-contacts-review','cloud-contacts-save','cloud-contacts-import','cloud-export-csv','cloud-export-json'])$(id).disabled=busy||!user;
   $('cloud-contacts-note-save').disabled=busy||!user||!selected||dirty;
   $('cloud-new-note').disabled=busy||!user||!selected;
   for(const input of $('cloud-connection-form').querySelectorAll('input,textarea,select'))input.disabled=busy||!user;
@@ -45,6 +45,16 @@
   finally{if(e===epoch){busy=false;controls();renderList()}}
  }
  function conflict(){message('This connection changed on another device. Nothing was overwritten; your edits are still in the form. Copy them before refreshing the cloud list.')}
+ for(const format of ['csv','json'])$('cloud-export-'+format).onclick=()=>{
+  if(!user||busy)return;const account=user,api=client;
+  if(!confirm('Download saved cloud connections for '+account.email+'? The file includes private notes and follow-ups. Unsaved edits are not included. Store it somewhere private.'))return;
+  void run(async e=>{
+   message('Preparing your saved cloud connections…');
+   const exporter=window.ValeConnectionExport,data=await exporter.fetchAll(api,account.id,()=>e===epoch&&user?.id===account.id);
+   if(e!==epoch)return;const result=exporter.file(data,format);exporter.download(result);
+   message('Download requested for '+result.count+' cloud connections ('+format.toUpperCase()+'). Check your downloads before relying on this backup. Unsaved edits were kept in the editor.');
+  });
+ };
  $('cloud-contacts-new').onclick=()=>{if(discard()){fill(null);message('New private cloud connection.')}};
  $('cloud-contacts-refresh').onclick=()=>{if(discard())void run(async e=>{dirty=false;$('cloud-new-note').value='';if(await load()&&e===epoch)message('Cloud list refreshed.');})};
  $('cloud-connection-form').addEventListener('input',()=>{dirty=true;controls()});
@@ -97,7 +107,7 @@
   const next=event.detail;if(user?.id===next.user?.id&&client===next.client)return;
   epoch++;if(timer)clearInterval(timer);client=next.client;user=next.user;rows=[];busy=false;selected=null;dirty=false;
   $('cloud-import-panel').hidden=true;$('cloud-import-list').replaceChildren();fill(null);
-  message(user?'Loading private cloud connections…':'Sign in through Cloud Account to use private cloud connections. Browser connections below are unchanged.');
+  message(user?'Loading private cloud connections…':'Sign in through Cloud Account to use private cloud connections. Browser connections above are unchanged.');
   if(user){timer=setInterval(background,20000);void run(async e=>{if(await load()&&e===epoch)message('Private cloud list ready. Add a connection or review browser imports.');})}
  });
  fill(null);message('Sign in through Cloud Account to use private cloud connections.');

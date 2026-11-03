@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict'),exp=require('../connections-export.js');
+const sample={id:'c1',owner_id:'owner-a',full_name:'José, "Test"',notes:'First line\nSecond line',phone:'+1 555 0101',next_step:'Follow up',follow_up_on:'2026-11-12',history:[{date:'2026-11-02',text:'Private dated note'}],revision:2,access_token:'DO NOT EXPORT',extra:'DO NOT EXPORT'};
+function client(records,{cap=500,errorAt=-1,changeCount=false}={}){let calls=0;return {get calls(){return calls},from(table){assert.equal(table,'connections');return {select(cols,opts){assert.equal(cols,'*');assert.equal(opts.count,'exact');return this},eq(k,v){assert.equal(k,'owner_id');assert.equal(v,'owner-a');return this},order(k,opts){assert.equal(k,'id');assert.equal(opts.ascending,true);return this},async range(start,end){calls++;if(calls===errorAt)return {error:Error('Network failed')};return {data:records.slice(start,Math.min(end+1,start+cap)),count:records.length+(changeCount&&calls>1?1:0),error:null}}}}}}
+(async()=>{
+ const rows=Array.from({length:1003},(_,i)=>({...sample,id:String(i).padStart(5,'0')})),api=client(rows,{cap:137});
+ const data=await exp.fetchAll(api,'owner-a');assert.equal(data.length,1003);assert.equal(api.calls,8);assert.equal(data[0].owner_id,undefined);assert.equal(data[0].access_token,undefined);
+ const json=exp.file(data,'json',new Date('2026-11-02T12:00:00Z')),body=JSON.parse(json.body);assert.equal(body.count,1003);assert.equal(body.version,1);assert.deepEqual(body.connections[0].history,sample.history);assert.equal(body.connections[0].notes,sample.notes);assert(!json.body.includes('DO NOT EXPORT'));
+ const csv=exp.file([sample,{...sample,full_name:' =SUM(1,2)',notes:'@malicious',history:[]}],'csv');assert(csv.body.startsWith('\ufeff'));assert(csv.body.includes('José, ""Test""'));assert(csv.body.includes('First line\nSecond line'));assert(csv.body.includes('Private dated note'));assert(csv.body.includes('"\' =SUM(1,2)"'));assert(csv.body.includes('"\'@malicious"'));assert(csv.body.includes('"\'+1 555 0101"'));assert(!csv.body.includes('DO NOT EXPORT'));
+ assert.equal(JSON.parse(exp.file([],'json').body).count,0);assert.equal((await exp.fetchAll(client([]),'owner-a')).length,0);
+ await assert.rejects(exp.fetchAll(client(rows,{errorAt:2}),'owner-a'),/Network failed/);
+ await assert.rejects(exp.fetchAll(client(rows,{changeCount:true}),'owner-a'),/changed during export/);
+ await assert.rejects(exp.fetchAll(client([{...sample,owner_id:'other'}]),'owner-a'),/verify/);
+ let valid=true;const delayed=client([sample]),orig=delayed.from;delayed.from=function(...args){const query=orig(...args),range=query.range;query.range=async(...a)=>{const r=await range(...a);valid=false;return r};return query};await assert.rejects(exp.fetchAll(delayed,'owner-a',()=>valid),/Account changed/);
+ assert.throws(()=>exp.file([],'html'),/CSV or JSON/);
+ console.log('PASS: complete 1003-row paginated exports despite lower API cap; owner filter and account cancellation; changed-count/partial-page errors abort; JSON history/notes exact; CSV Unicode/quotes/newlines/formula protection; empty export; auth/owner metadata excluded.');
+})().catch(e=>{console.error(e);process.exitCode=1});
