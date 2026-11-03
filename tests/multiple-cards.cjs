@@ -18,7 +18,7 @@ const elements=new Map();const get=id=>{if(!elements.has(id))elements.set(id,new
 let rows=[],eventHandlers={},confirmCount=0;
 class Query{
  constructor(){this.verb='select';this.filters=[]}
- select(){return this}eq(k,v){this.filters.push([k,v]);return this}order(){return this}
+ select(){return this}eq(k,v){this.filters.push([k,v]);return this}order(){return this}range(from,to){this.start=from;this.end=to;return this}
  insert(payload){this.verb='insert';this.payload=payload;return this}update(payload){this.verb='update';this.payload=payload;return this}
  single(){return this.execute()}maybeSingle(){return this.execute()}
  then(resolve,reject){return this.execute().then(resolve,reject)}
@@ -28,11 +28,11 @@ class Query{
   }
   const found=rows.filter(row=>this.filters.every(([k,v])=>row[k]===v));
   if(this.verb==='update'){if(!found.length)return {data:null,error:null};Object.assign(found[0],this.payload);return {data:{...found[0]},error:null}}
-  return {data:found.map(r=>({...r})),error:null};
+  return {data:found.slice(this.start||0,Math.min((this.end??found.length)+1,(this.start||0)+73)).map(r=>({...r})),count:found.length,error:null};
  }
 }
 const client={from:()=>new Query()};
-const context={window:{ValeCardTools:tools,ValeQR:class{addData(){}make(){}getModuleCount(){return 21}isDark(){return true}},addEventListener:(k,fn)=>{eventHandlers[k]=fn}},document:{getElementById:get,createElement:tag=>Object.assign(new Element(''),{tag})},location:{href:'https://example.invalid/vale-connect-dev/'},URL,crypto:require('node:crypto').webcrypto,confirm:()=>{confirmCount++;return true},console};
+const context={window:{ValeAccountLists:require(path.join(path.resolve(root),'account-lists.js')),ValeCardTools:tools,ValeQR:class{addData(){}make(){}getModuleCount(){return 21}isDark(){return true}},addEventListener:(k,fn)=>{eventHandlers[k]=fn}},document:{getElementById:get,createElement:tag=>Object.assign(new Element(''),{tag})},location:{href:'https://example.invalid/vale-connect-dev/'},URL,crypto:require('node:crypto').webcrypto,confirm:()=>{confirmCount++;return true},console};
 vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'cards.js'),'utf8'),context);
 const settle=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve))};
 const fill=(label,name)=>{get('multi-label').value=label;get('multi-slug').value=label.toLowerCase().replace(/ /g,'-');get('multi-fullName').value=name;get('multi-company').value=label;get('cards-form').handlers.input()};
@@ -57,6 +57,6 @@ async function save(){get('cards-form').onsubmit({preventDefault(){}});await set
  eventHandlers['vale-account-ready']({detail:{client,user:{id:'owner-b'}}});await settle();
  assert.equal(get('multi-fullName').value,'');assert.match(get('cards-list').children[0].textContent,/No saved cards/);
  eventHandlers['vale-account-ready']({detail:{client,user:null}});await settle();assert.equal(get('cards-workspace').hidden,true);
+ rows=Array.from({length:1003},(_,i)=>({id:'large-'+String(i).padStart(5,'0'),owner_id:'owner-a',card_label:'Card '+i,published:false}));eventHandlers['vale-account-ready']({detail:{client,user:{id:'owner-a'}}});await settle();assert.equal(get('cards-list').children.length,1003);
  console.log('PASS: field conversion/VCF/validation; two drafts for one owner; separate IDs; explicit publish/unpublish and QR; stale revision preserves edits; refresh reload; account switch/sign-out clear manager.');
 })().catch(e=>{console.error(e);process.exitCode=1});
-

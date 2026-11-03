@@ -2,12 +2,14 @@
 
 Development repository and Supabase project jlprxnmdvoloahssjlnu only. Production v0.8.5 is separate.
 
+Current candidate: Build 7. Guided PC/Android export/restore and earlier install/card/sync checks passed. iPhone core checks were user-reported; its update cycle remains an accepted, unverified planning assumption. Versioned sections below describe development history; current behavior includes private cloud connections and selected JSON restore.
+
 ## Two card workflows
 
 - My Card retains the existing single private profile and its tested cross-device synchronization. Its Share & QR tab uses a snapshot encoded in the URL.
 - Cards manages multiple independent cards under one signed-in account. Create a named private draft, save it, and explicitly publish it to enable its live p.html?u=slug link and QR. Unpublishing disables live public viewing. Existing downloaded or copied data cannot be recalled.
 - Each managed card has a stable UUID, owner_id, unique immutable-in-the-UI slug, public-facing card_label, published flag and revision. The editor updates only the expected revision; stale saves preserve form edits and ask for a refresh. The old profiles table is not copied, migrated or published automatically.
-- Contacts, dated notes and follow-ups remain browser-local. Save to VALE Connections is browser-local; billing is not implemented. PWA installation is a development candidate requiring device acceptance.
+- Browser connections stay device/browser specific. Cloud connections sync private notes/follow-ups across the signed-in account; reviewed imports copy selected browser entries. Shared cards offer separate browser and cloud destinations. Billing is not implemented.
 
 ## Security and compatibility
 
@@ -98,7 +100,7 @@ Cloud connections offers Export cloud CSV and Download cloud backup (JSON), each
 
 The export reads ordered, paginated results with an exact total and refuses an incomplete list, mismatched owner, repeated ID, changed count or failed page. It supports API row caps below the requested page size by advancing by the actual number returned. Concurrent edits across pages are not a transactional snapshot; export while other devices are idle and retry if the list changes. No new database privileges or migrations are required.
 
-CSV includes saved details, follow-up fields, private notes and dated history as JSON in a cell; cells with spreadsheet formula prefixes are escaped. UTF-8 BOM and quoted cells preserve Unicode/commas/line breaks. JSON format vale-connect-cloud-connections version 1 preserves original values, IDs, revision, timestamps, source references and full dated history; owner IDs/authentication metadata are omitted. JSON restore is not yet implemented, so this is a downloadable data backup, not a tested restore workflow. Browser CSV remains separate. Store these private downloads securely and verify their contents.
+CSV includes saved details, follow-up fields, private notes and dated history as JSON in a cell; cells with spreadsheet formula prefixes are escaped. UTF-8 BOM and quoted cells preserve Unicode/commas/line breaks. JSON format vale-connect-cloud-connections version 1 preserves original values, IDs, revision, timestamps, source references and full dated history; owner IDs/authentication metadata are omitted. Build 6 added selected missing-connection restore, described below. Browser CSV remains separate. Store these private downloads securely and verify their contents.
 
 Tests: node tests/connections-export.cjs plus the expanded cloud manager test. Includes 1,003 records with lower server cap, pagination failure/change/cancellation, note/history retention, safe CSV, empty data, explicit confirmation, unsaved drafts retained and account-switch cancellation. Roll back app source with a new worker version while preserving downloaded files, cloud records and browser storage. Production remains untouched.
 
@@ -113,3 +115,13 @@ Supports JSON format vale-connect-cloud-connections version1, development enviro
 Tests: node tests/connections-restore.cjs and node tests/connections-restore-ui.cjs. Covers exported JSON round trip; malformed/wrong-environment/count/date/history/link/size rejection; exact/repeated/possible matches; explicit unchecked preview; cancel; fresh insert owner/identity; preserved notes/history/follow-up; repeat import; uniqueness races; stopped failure; account-change cancellation. Existing export/cloud/local/cards/PWA/sharing checks pass. Device restore acceptance remains required.
 
 Rollback: revert Build6 app changes with a fresh development worker version. Retain all records, including newly restored entries, and browser storage. No database migration or permission changes are involved; do not delete restored rows automatically to roll back the UI. Destructive data removal remains separately approved. Production remains untouched.
+
+## Account transitions and complete lists — Build 7
+
+Manual profile preview/load/upload and queued automatic operations are bound to the account/session generation at the time of the action. Delayed results/errors are ignored after sign-out or an account switch; profile previews clear on every transition, including cross-tab events. The authentication listener is registered before the initial user check so a stale initial result cannot replace a newer auth event. An already-sent write may finish in its original account; later actions cannot silently switch destination. Browser-local My Card/contacts are not erased by sign-out.
+
+account-lists.js reads owner-filtered connections/cards in ID-ordered pages with exact totals. It rejects failed/incomplete pages, changed totals, duplicate IDs or mismatched owners instead of returning a partial list, and stops after account changes. Only a complete result replaces the displayed list; earlier saved data stays intact on errors. Connection display sorts newest first after fetching; cards sort by label. Shared-card duplicate checks use the same complete connection reader. Simultaneous changes are not a transactional snapshot; refresh if loading reports a change.
+
+Tests: node tests/account-transitions.cjs, node tests/account-lists.cjs, expanded tests/multiple-cards.cjs and existing cloud/export/restore/PWA/sharing suites. Includes delayed success/error, sign-out/A-to-B/queued manual and automatic actions, retained current-account behavior and 1,003-record card/connection lists under a lower API cap. No schema, grants, cloud records or production data changed to implement the repairs. Exact cloud-client pinning and security-advisory dispositions remain separate readiness follow-ups.
+
+Rollback through a history-preserving app revert with a new development worker cache version, preserving database records and browser storage. Reverting Build7 reintroduces the known stale-response/list-cap defects, so prefer a targeted forward fix when possible.

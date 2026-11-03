@@ -60,9 +60,9 @@
  }
  async function listCards(){
   const requestEpoch=epoch,owner=user.id;
-  const {data,error}=await client.from('public_cards').select('*').eq('owner_id',owner).order('card_label').order('id');
+  const data=await window.ValeAccountLists.read(client,'public_cards',owner,()=>requestEpoch===epoch&&owner===user?.id);
   if(requestEpoch!==epoch||owner!==user?.id)return false;
-  if(error)throw error;cards=data||[];renderList();return true;
+  cards=data.sort((a,b)=>a.card_label.localeCompare(b.card_label)||a.id.localeCompare(b.id));renderList();return true;
  }
  async function run(work){
   if(busy||!user)return;const requestEpoch=epoch;busy=true;controls();renderList();
@@ -116,4 +116,3 @@
  });
  clearForm();renderList();message('Sign in through Cloud Account to manage your cards.');
 })();
-
