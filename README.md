@@ -80,3 +80,14 @@ Acceptance: open a synthetic shared card, save explicitly, verify it appears in 
 
 Rollback: revert the Build 3 app-source change using a development history-preserving revert; retain the browser connection list. Do not clear localStorage or rerun SQL. Retained extra contact properties are ignored by older renderers, and existing records/notes remain compatible.
 
+## Private cloud connections — Build 4
+
+Connections now has separate Browser connections and Cloud connections lists. The original browser list and its CSV export remain device/browser specific. Cloud connections require sign-in and an internet connection, and refresh on focus or approximately every 20 seconds while the editor has no unsaved changes. Cloud lists are kept in memory, not copied into the shared browser contact storage or service-worker cache. Account changes clear the cloud editor and list.
+
+Use Review browser connections, select individual unchecked entries, and confirm the destination account to import. Originals remain intact. Shared cards also offer a separately confirmed Save to my cloud connections action when signed in in that browser. Stable source identities prevent repeat imports per account; possible email/phone/name-company matches need an explicit separate-entry choice. Existing notes and dated history are never automatically merged or overwritten. Saving someone else's card does not disclose the recipient's details or establish reciprocal sharing.
+
+Migration 20261103025723_add_private_cloud_connections adds only public.connections in development project jlprxnmdvoloahssjlnu. RLS and table privileges permit authenticated owner-only SELECT/INSERT/UPDATE; anonymous access, ownership transfer, DELETE and TRUNCATE are denied. Owner/source uniqueness is separate from public_cards. Conditional revision updates preserve stale editor text for manual resolution. Direct API clients must also use the revision predicate. Cloud editing is online-only; no background retry queue or automatic import is implemented. Browser CSV export does not include cloud records.
+
+Tests: node tests/cloud-connections.cjs and node tests/cloud-connections-manager.cjs. The transaction-only database test verifies actual anon/authenticated roles, cross-account isolation, ownership transfer denial, source uniqueness per owner, own writes, history retention and stale revision rejection; all synthetic fixtures roll back.
+
+Rollback: revert the Build 4 application commit while keeping public.connections and its saved records/policies. Publish a new development service-worker version so installed clients receive the rollback. Do not drop the table, revoke access to existing records, clear browser storage or restore production. If a future schema rollback is essential, first export/verify development data and request explicit approval for destructive operations. Existing profile/card tables are unchanged.

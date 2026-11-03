@@ -20,7 +20,7 @@
   return c;
  }
  function findDuplicate(list,incoming){
-  let record=list.find(r=>r.source_identity===incoming.source_identity);
+  let record=incoming.source_identity?list.find(r=>r.source_identity===incoming.source_identity):null;
   if(record)return {record,exact:true,reason:'this shared card'};
   const e=email(incoming.cemail),p=phone(incoming.cphone),name=normalized(incoming.cname),company=normalized(incoming.cbusiness);
   if(e&&(record=list.find(r=>email(r.cemail)===e)))return {record,exact:false,reason:'email address'};
@@ -41,4 +41,3 @@
  const api={KEY,readContacts,candidate,findDuplicate,inspect,save,safeURL};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeConnections=api;
 })(typeof window!=='undefined'?window:globalThis);
-
