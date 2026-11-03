@@ -20,7 +20,7 @@
   $('cloud-restore-summary').textContent=entries.length+' in backup; '+saved+' already present/repeated; '+possible+' possible matches. Nothing is selected or imported automatically.';controls();
  }
  $('cloud-restore-clear').onclick=()=>{if(!busy){clear();status('Preview cleared. No cloud data was deleted.')}};
- $('cloud-restore-file').onchange=()=>{entries=[];$('cloud-restore-list').replaceChildren();$('cloud-restore-summary').textContent='';status('File selected. Click Preview backup to validate it and check existing connections.');controls()};
+ $('cloud-restore-file').onchange=()=>{entries=[];$('cloud-restore-list').replaceChildren();$('cloud-restore-summary').textContent='';status('File selected. Next: click Preview backup. Nothing has been imported.');controls()};
  $('cloud-restore-preview').onclick=async()=>{
   if(busy||!user)return;const file=$('cloud-restore-file').files?.[0];if(!file){status('Choose a VALE development JSON backup first.');return}
   const e=epoch,account=user,api=client;busy=true;entries=[];$('cloud-restore-list').replaceChildren();$('cloud-restore-summary').textContent='';controls();

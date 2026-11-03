@@ -20,7 +20,7 @@
   async function save(asSeparate){
    if(busy||generation!==epoch)return;busy=true;button.disabled=true;separate.disabled=true;
    try{
-    const contact=local.candidate(profile,source),rows=await core.list(api,account.id);if(generation!==epoch)return;
+    const contact=local.candidate(profile,source),rows=await core.list(api,account.id,()=>generation===epoch);if(generation!==epoch)return;
     const match=core.duplicate(rows,contact);if(match&&(match.exact||!asSeparate)){duplicate(match);return}
     if(!confirm('Save '+contact.cname+' privately to the cloud account '+account.email+(asSeparate?' as a separate entry':'')+'? This will sync to your signed-in devices.'))return;
     if(generation!==epoch)return;

@@ -2,6 +2,7 @@
 (function(root){
  'use strict';
  const local=typeof module!=='undefined'&&module.exports?require('./connections-core.js'):root.ValeConnections;
+ const lists=typeof module!=='undefined'&&module.exports?require('./account-lists.js'):root.ValeAccountLists;
  const fields={cname:'full_name',cbusiness:'business_name',cemail:'email',cphone:'phone',cjobTitle:'job_title',cwebsite:'website',csocials:'social_links',cnotes:'notes',ccategory:'category',cnext:'next_step',cdate:'follow_up_on'};
  const categories=['Prospect','Customer','Supplier','Partner','Personal','Other'],steps=['Follow up','Send a quote','Schedule a meeting','Stay in touch','Completed'];
  const str=v=>typeof v==='string'?v:'';
@@ -21,8 +22,9 @@
   const fallback=id?'local:'+id:'browser:'+JSON.stringify([contact.cname,contact.cbusiness,contact.cemail,contact.cphone]);
   return {...structuredClone(contact),source_identity:str(contact.source_identity)||fallback};
  }
- async function list(client,owner){
-  const {data,error}=await client.from('connections').select('*').eq('owner_id',owner).order('updated_at',{ascending:false});if(error)throw error;return data||[];
+ async function list(client,owner,valid=()=>true){
+  const rows=await lists.read(client,'connections',owner,valid);
+  return rows.sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||''))||a.id.localeCompare(b.id));
  }
  function duplicate(rows,contact){return local.findDuplicate(rows.map(toLocal),contact)}
  async function create(client,owner,contact){

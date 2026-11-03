@@ -36,7 +36,7 @@
   }
  }
  async function load(){
-  const e=epoch,owner=user.id,data=await core.list(client,owner);if(e!==epoch||owner!==user?.id)return false;
+  const e=epoch,owner=user.id,data=await core.list(client,owner,()=>e===epoch&&owner===user?.id);if(e!==epoch||owner!==user?.id)return false;
   rows=data;if(selected&&!editing()){const latest=rows.find(r=>r.id===selected.id);if(latest)fill(latest)}renderList();return true;
  }
  async function run(work){
