@@ -1,0 +1,19 @@
+{
+  "id": "/vale-connect-dev/",
+  "name": "VALE Connect Development",
+  "short_name": "VALE Dev",
+  "description": "VALE Connect development app: profiles, cards and professional connections.",
+  "lang": "en",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0e13",
+  "theme_color": "#0c1016",
+  "prefer_related_applications": false,
+  "icons": [
+    {"src":"assets/icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"assets/icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},
+    {"src":"assets/icons/maskable-512.png","sizes":"512x512","type":"image/png","purpose":"maskable"}
+  ]
+}
+
