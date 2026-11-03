@@ -2,7 +2,7 @@
 
 Development repository and Supabase project jlprxnmdvoloahssjlnu only. Production v0.8.5 is separate.
 
-Current candidate: Build 7. Guided PC/Android export/restore and earlier install/card/sync checks passed. iPhone core checks were user-reported; its update cycle remains an accepted, unverified planning assumption. Versioned sections below describe development history; current behavior includes private cloud connections and selected JSON restore.
+Current candidate: Build 8. Guided PC/Android export/restore and earlier install/card/sync checks passed. iPhone core checks were user-reported; its update cycle remains an accepted, unverified planning assumption. Versioned sections below describe development history; current behavior includes private cloud connections and selected JSON restore.
 
 ## Two card workflows
 
@@ -125,3 +125,15 @@ account-lists.js reads owner-filtered connections/cards in ID-ordered pages with
 Tests: node tests/account-transitions.cjs, node tests/account-lists.cjs, expanded tests/multiple-cards.cjs and existing cloud/export/restore/PWA/sharing suites. Includes delayed success/error, sign-out/A-to-B/queued manual and automatic actions, retained current-account behavior and 1,003-record card/connection lists under a lower API cap. No schema, grants, cloud records or production data changed to implement the repairs. Exact cloud-client pinning and security-advisory dispositions remain separate readiness follow-ups.
 
 Rollback through a history-preserving app revert with a new development worker cache version, preserving database records and browser storage. Reverting Build7 reintroduces the known stale-response/list-cap defects, so prefer a targeted forward fix when possible.
+
+## Dependency and function permissions — Build 8
+
+App and public viewer explicitly load @supabase/supabase-js 2.118.0 UMD from jsDelivr, replacing the floating @2 URL. The CDN package metadata and upstream release v2.118.0 were verified. Future upgrades require an explicit source/version change and regression check. This is a version pin, not a vendored bundle or SRI integrity check; CDN availability/trust still applies. Browser runtime and user sign-in/card/connection smoke checks remain part of acceptance.
+
+Development migration20261103044001_restrict_rls_event_trigger_client_execution revokes EXECUTE on public.rls_auto_enable() from PUBLIC/anon/authenticated. Function body/search path/SECURITY DEFINER mode/owner and ensure_rls event trigger remain unchanged. The owner retains execution and automatic RLS remains enabled. A randomly named empty public-table probe verified automatic RLS inside a rolled-back subtransaction, with no probe left behind. No application record was modified. Permission/catalog checks passed and advisors now show only the pre-existing leaked-password warning.
+
+The organization is currently on the Free plan. Leaked-password protection requires a paid plan; the user plans to upgrade when launch needs justify it and enable that protection then. Keep Free during development and revisit current pricing/requirements before a billing action. This is a documented limitation and future intent, not current billing authorization or a claim that the feature is enabled.
+
+Tests: node tests/client-pin.cjs, the existing thirteen suites/checks, and supabase/tests/rls_event_trigger_permissions.sql. Security advisor results fell from three warnings to the single known Free-plan warning. No production configuration/data was touched.
+
+Rollback: reverting the frontend pin requires a new development worker version and verification of the previous exact library version, while keeping database records and RLS protections. Do not restore a floating client URL as routine rollback. Keep the restrictive function permissions when reverting frontend code. Prior function ACL was default PUBLIC EXECUTE (proacl NULL); restoring that would reintroduce warnings and should require a separately reviewed reason. No destructive database rollback is required.
