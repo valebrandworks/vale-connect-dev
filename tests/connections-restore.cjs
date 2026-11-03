@@ -1,0 +1,19 @@
+const assert=require('node:assert/strict'),restore=require('../connections-restore.js'),exp=require('../connections-export.js');
+const row={id:'11111111-1111-4111-8111-111111111111',full_name:'Restore Test Person',business_name:'Development Only',email:'',phone:'',job_title:'',website:'',social_links:'',category:'Other',next_step:'Follow up',follow_up_on:'2026-11-12',notes:'Saved private note',history:[{date:'2026-11-02T12:00:00Z',text:'Saved dated note'}],source_identity:null,source_url:'',revision:8,owner_id:'untrusted-owner'};
+const raw=records=>exp.file(records,'json',new Date('2026-11-02T12:00:00Z')).body,parsed=restore.parse(raw([row]));assert.equal(parsed.count,1);assert.equal(parsed.records[0].owner_id,undefined);assert.equal(parsed.records[0].revision,undefined);
+for(const value of ['broken','{}',JSON.stringify({format:'vale-connect-cloud-connections',version:2,environment:'development'}),raw([row]).replace('"development"','"production"'),raw([row]).replace('"count": 1','"count": 2'),raw([{...row,full_name:' '}]),raw([{...row,history:[{text:'missing date'}]}]),raw([{...row,follow_up_on:'2026-02-30'}]),raw([{...row,website:'javascript:alert(1)'}]),raw([{...row,notes:'x'.repeat(10001)}])])assert.throws(()=>restore.parse(value));
+assert.throws(()=>restore.parse('x'.repeat(restore.MAX_BYTES+1)),/10 MB/);assert.equal(restore.parse(raw([])).count,0);
+const preview=restore.preview(parsed.records,[row]);assert.equal(preview[0].match.exact,true);assert.equal(restore.preview([parsed.records[0],parsed.records[0]],[])[1].match.exact,true);
+const shared={...row,source_identity:'card:shared'};assert.equal(restore.preview(restore.parse(raw([shared])).records,[{...shared,id:'22222222-2222-4222-8222-222222222222'}])[0].match.exact,true);
+assert.equal(restore.preview(parsed.records,[{...row,id:'22222222-2222-4222-8222-222222222222'}])[0].match.exact,false);
+let saved=[],inserts=0,errorCode='',valid=true;
+const client={from(table){assert.equal(table,'connections');return {insert(payload){assert.equal(payload.owner_id,'chosen-owner');assert.equal(payload.id,undefined);assert.equal(payload.revision,undefined);this.payload=payload;return this},select(){return this},async single(){inserts++;if(errorCode)return {error:{code:errorCode,message:'Failed'}};const data={...this.payload,id:'22222222-2222-4222-8222-222222222222',revision:0};saved.push(data);return {data}}}}};
+(async()=>{
+ let result=await restore.restore(client,'chosen-owner',parsed.records,[row]);assert.equal(result.skipped,1);assert.equal(inserts,0);assert.equal(row.notes,'Saved private note');
+ result=await restore.restore(client,'chosen-owner',parsed.records,[]);assert.equal(result.added,1);assert.equal(saved[0].source_identity,'backup:'+row.id);assert.deepEqual(saved[0].history,row.history);assert.equal(saved[0].notes,row.notes);assert.equal(saved[0].follow_up_on,row.follow_up_on);
+ result=await restore.restore(client,'chosen-owner',parsed.records,saved);assert.equal(result.skipped,1);assert.equal(inserts,1);
+ result=await restore.restore(client,'chosen-owner',parsed.records,[],()=>false);assert.equal(result.cancelled,true);assert.equal(inserts,1);
+ errorCode='23505';result=await restore.restore(client,'chosen-owner',parsed.records,[]);assert.equal(result.skipped,1);
+ errorCode='network';result=await restore.restore(client,'chosen-owner',[...parsed.records,...parsed.records],[]);assert.equal(result.failed,1);assert.equal(result.stopped,true);assert.equal(inserts,3);
+ console.log('PASS: exported JSON round trip; invalid format/environment/count/date/history/size/links rejected; preview exact/repeated/possible matches; owner chosen from session; insert-only fresh IDs; private notes/history/follow-up retained; repeat manual/shared backup skips; cancelled restore no writes; uniqueness race skips; failure stops safely.');
+})().catch(e=>{console.error(e);process.exitCode=1});
