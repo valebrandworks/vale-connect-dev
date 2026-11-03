@@ -1,7 +1,7 @@
 /* Development scope only. Cache static offline artwork/screen, never account or card responses. */
 'use strict';
 const CACHE_PREFIX='vale-connect-dev-pwa-';
-const CACHE_NAME=CACHE_PREFIX+'v2';
+const CACHE_NAME=CACHE_PREFIX+'v3';
 const scope=new URL(self.registration.scope);
 const staticPaths=['offline.html','assets/icons/icon-192.png','assets/icons/icon-512.png','assets/icons/maskable-512.png','assets/icons/apple-touch-icon.png'];
 const staticURLs=staticPaths.map(path=>new URL(path,scope).href);

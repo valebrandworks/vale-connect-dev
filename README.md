@@ -7,7 +7,7 @@ Development repository and Supabase project jlprxnmdvoloahssjlnu only. Productio
 - My Card retains the existing single private profile and its tested cross-device synchronization. Its Share & QR tab uses a snapshot encoded in the URL.
 - Cards manages multiple independent cards under one signed-in account. Create a named private draft, save it, and explicitly publish it to enable its live p.html?u=slug link and QR. Unpublishing disables live public viewing. Existing downloaded or copied data cannot be recalled.
 - Each managed card has a stable UUID, owner_id, unique immutable-in-the-UI slug, public-facing card_label, published flag and revision. The editor updates only the expected revision; stale saves preserve form edits and ask for a refresh. The old profiles table is not copied, migrated or published automatically.
-- Contacts, dated notes and follow-ups remain browser-local. There is no Save to VALE Connections flow or billing yet. PWA installation is a development candidate requiring device acceptance.
+- Contacts, dated notes and follow-ups remain browser-local. Save to VALE Connections is browser-local; billing is not implemented. PWA installation is a development candidate requiring device acceptance.
 
 ## Security and compatibility
 
@@ -62,4 +62,21 @@ Tests:
 Browser/device acceptance remains necessary: native installation (PC/Android/iPhone as available), correct icon/name, standalone launch, online sign-in/cards, offline connection screen without stale private content, and update behavior across a later release. Do not call PWA acceptance complete merely because scripts and tests pass. Manifest/service-worker setup follows web.dev/learn/pwa/web-app-manifest and WebKit's Add to Home Screen guidance.
 
 PWA rollback needs more than reverting index.html because a registered worker persists. See docs/pwa-rollback.md for a development-scoped retirement worker; do not unregister unrelated workers or clear user data.
+
+
+## Save to VALE Connections — Build 3
+
+Both encoded snapshot shared cards and published p.html cards offer an explicit, confirmed save into vale-connect-dev-v09-contacts. No sign-in, account-data transmission, reciprocal exchange or cloud write occurs. The save UI explains that data remains in the current device/browser; Safari, Chrome and an installed app can have separate storage. Open my VALE Connections navigates to the local Connections view in that same browser. Existing VCF export remains separate.
+
+Exact stable published-card identities and repeated snapshot identities are blocked from being saved again. Possible matches by normalized email, phone (at least seven digits) or both name/company preserve the existing record and notes and allow the user to explicitly save a separate entry. There is no automatic merge or overwrite. Updates to a shared card do not silently modify an already saved connection.
+
+Read existing storage immediately before save. Unreadable/corrupt lists and failed/quota-limited writes produce an error rather than overwriting the list. Web Locks serialize cooperating import actions across tabs when available; this is not a claim of transactional cross-tab storage for the legacy manual editor. App storage events refresh open local connection lists. Imported role/website/social fields and source URL are preserved/exported along with standard contact fields; source links accept only HTTP(S).
+
+connections-core.js contains validation, duplicate detection and local storage operations; connections-ui.js mounts the public-view save controls. Tests:
+
+    node tests/connections.cjs
+
+Acceptance: open a synthetic shared card, save explicitly, verify it appears in Connections in the same browser, reopen/rescan and confirm no duplicate. Exercise a possible match without modifying existing notes. Phone/browser/installed-app storage boundaries should be explained rather than hidden.
+
+Rollback: revert the Build 3 app-source change using a development history-preserving revert; retain the browser connection list. Do not clear localStorage or rerun SQL. Retained extra contact properties are ignored by older renderers, and existing records/notes remain compatible.
 
