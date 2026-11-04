@@ -74,6 +74,19 @@ function showPasswordForm(text){$('cloud-new-password').hidden=false;msg('cloud-
 $('cloud-change-password').addEventListener('click',()=>showPasswordForm('Enter your new password.'));
 $('cloud-reset').addEventListener('click',async()=>{if(!client)return;const email=$('cloud-email').value.trim();if(!email){msg('cloud-auth-status','Enter your email address first.');return}msg('cloud-auth-status','Sending…');const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});msg('cloud-auth-status',error&&/rate|limit|seconds/i.test(error.message)?'Too many requests. Please wait a few minutes and try again.':'If that email has an account, a reset link is on its way. Check your inbox and spam folder.')});
 $('cloud-new-password').addEventListener('submit',async e=>{e.preventDefault();if(!client)return;const password=$('cloud-new-password-value').value;if(password.length<8){msg('cloud-auth-status','Use at least 8 characters.');return}if(password!==$('cloud-new-password-confirm').value){msg('cloud-auth-status','Those passwords don’t match.');return}const {error}=await client.auth.updateUser({password});$('cloud-new-password-value').value='';$('cloud-new-password-confirm').value='';if(error){msg('cloud-auth-status','Password not changed: '+error.message);return}$('cloud-new-password').hidden=true;msg('cloud-auth-status','Password changed.')});
+$('cloud-delete-account').addEventListener('click',async()=>{
+ if(!client||!user)return;
+ const email=$('cloud-delete-email').value.trim(),password=$('cloud-delete-password').value,accountEmail=user.email;
+ if(email.toLowerCase()!==String(accountEmail).toLowerCase()){msg('cloud-delete-status','Type your account email exactly. Nothing was deleted.');return}
+ if(!password){msg('cloud-delete-status','Enter your password. Nothing was deleted.');return}
+ if(!confirm('Permanently delete this account and all its cards and cloud connections? Public card links and QR codes will stop working. This can\u2019t be undone.')){msg('cloud-delete-status','Cancelled. Nothing was deleted.');return}
+ msg('cloud-delete-status','Confirming it\u2019s you…');$('cloud-delete-password').value='';
+ const {error:signInError}=await client.auth.signInWithPassword({email:accountEmail,password});
+ if(signInError){msg('cloud-delete-status','That password wasn\u2019t accepted. Nothing was deleted.');return}
+ const {error}=await client.rpc('delete_my_account',{confirm_email:email});
+ if(error){msg('cloud-delete-status',error.message);return}
+ await client.auth.signOut({scope:'local'});$('cloud-delete-email').value='';msg('cloud-delete-status','');msg('cloud-auth-status','Your account was deleted. Anything saved only in this browser is still here.');
+});
 $('cloud-signup').addEventListener('click',async()=>{if(!client)return;const email=$('cloud-email').value.trim(),password=$('cloud-password').value;if(!email||!password){msg('cloud-auth-status','Enter an email and password first.');return}if(password.length<8){msg('cloud-auth-status','Use a password of at least 8 characters.');return}try{const {data,error}=await client.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname}});msg('cloud-auth-status',error?'Registration failed: '+error.message:data?.session?'Account created and signed in.':'Check your email for a confirmation link, then return and sign in.')}catch(err){msg('cloud-auth-status',err.message)}$('cloud-password').value=''});
 $('cloud-signout').addEventListener('click',async()=>{if(!client||!user)return;const request=accountRequest();const {error}=await client.auth.signOut();if(user&&!current(request))return;msg('cloud-auth-status',error?error.message:'Signed out.');if(!user)$('cloud-profile-preview').textContent=''});
 function manualProfile(label,work){

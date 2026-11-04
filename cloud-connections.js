@@ -14,6 +14,7 @@
   for(const id of ['cloud-contacts-new','cloud-contacts-refresh','cloud-contacts-review','cloud-contacts-save','cloud-contacts-import','cloud-export-csv','cloud-export-json'])$(id).disabled=busy||!user;
   $('cloud-contacts-note-save').disabled=busy||!user||!selected||dirty;
   $('cloud-contacts-archive').disabled=busy||!user||!selected||dirty;
+  $('cloud-contacts-delete').disabled=busy||!user||!selected;
   $('cloud-contacts-archive').textContent=selected?.archived_at?'Restore connection':'Archive connection';
   $('cloud-new-note').disabled=busy||!user||!selected;
   for(const input of $('cloud-connection-form').querySelectorAll('input,textarea,select'))input.disabled=busy||!user;
@@ -30,9 +31,9 @@
   fields.forEach(k=>{$('cloud-'+k).value=v[k]||''});$('cloud-new-note').value='';renderHistory();controls();renderList();
  }
  function renderList(){
-  const list=$('cloud-contacts-list');list.replaceChildren();$('cloud-contacts-count').textContent=String(rows.length);
-  if(!rows.length){const p=document.createElement('p');p.textContent='No cloud connections yet. Add one or review browser imports.';list.append(p)}
-  for(const row of rows){
+  const list=$('cloud-contacts-list');list.replaceChildren();const showArchived=$('cloud-contacts-view').value==='archived',visible=rows.filter(row=>showArchived?!!row.archived_at:!row.archived_at);$('cloud-contacts-count').textContent=String(visible.length);
+  if(!visible.length){const p=document.createElement('p');p.textContent=showArchived?'No archived connections.':'No active cloud connections. Add one or review browser imports.';list.append(p)}
+  for(const row of visible){
    const b=document.createElement('button');b.type='button';b.className='btn alt';b.disabled=busy;
    b.textContent=(row.archived_at?'Archived · ':'')+row.full_name+(row.business_name?' · '+row.business_name:'')+' · '+row.next_step+(row.follow_up_on?' · '+row.follow_up_on:'');
    b.setAttribute('aria-pressed',String(row.id===selected?.id));b.onclick=()=>{if(discard())fill(row)};list.append(b);
@@ -66,7 +67,7 @@
   const site=$('cloud-cwebsite').value.trim();if(site&&!local.website(site)){message('Enter a valid website, such as example.com. Your edits were kept.');return}
   void run(async e=>{
    const data=selected?await core.update(client,user.id,selected,contact):await core.create(client,user.id,contact);
-   if(e!==epoch)return;if(!data){conflict();return}fill(data);$('cloud-new-note').value=pendingNote;await load();if(e===epoch)message('Private cloud connection saved. It will appear on your other signed-in devices.');
+   if(e!==epoch)return;if(!data){conflict();return}fill(data);$('cloud-new-note').value=pendingNote;await load();window.ValeUsage?.refresh();if(e===epoch)message('Private cloud connection saved. It will appear on your other signed-in devices.');
   });
  };
  $('cloud-contacts-note-save').onclick=()=>{
@@ -82,7 +83,16 @@
   const archive=!selected.archived_at;
   void run(async e=>{
    const data=await core.setArchived(client,user.id,selected,archive);if(e!==epoch)return;if(!data){conflict();return}
-   fill(data);await load();if(e===epoch)message(archive?'Connection archived. It no longer counts toward your plan, and its notes are kept.':'Connection restored.');
+   fill(data);await load();window.ValeUsage?.refresh();if(e===epoch)message(archive?'Connection archived. It no longer counts toward your plan, and its notes are kept.':'Connection restored.');
+  });
+ };
+ $('cloud-contacts-view').onchange=()=>renderList();
+ $('cloud-contacts-delete').onclick=()=>{
+  if(!selected||busy)return;
+  if(!confirm('Permanently delete '+selected.full_name+' and all their private notes and dated history? Archive instead if you may want them later. This can\'t be undone.'))return;
+  void run(async e=>{
+   const data=await core.remove(client,user.id,selected);if(e!==epoch)return;if(!data){conflict();return}
+   fill(null);await load();window.ValeUsage?.refresh();if(e===epoch)message('Connection deleted.');
   });
  };
  $('cloud-contacts-review').onclick=()=>{void run(async e=>{
@@ -110,7 +120,7 @@
     catch(error){if(error.code==='23505')skipped++;else failed++}
    }
    if(e!==epoch)return;await load();if(e!==epoch)return;
-   $('cloud-import-panel').hidden=true;message('Imported '+added+'; already saved '+skipped+'; failed '+failed+'. Browser originals and existing cloud notes were kept.');
+   $('cloud-import-panel').hidden=true;window.ValeUsage?.refresh();message('Imported '+added+'; already saved '+skipped+'; failed '+failed+'. Browser originals and existing cloud notes were kept.');
   });
  };
  function background(){if(user&&!busy&&!editing()&&!document.hidden&&navigator.onLine)void run(async()=>{await load()})}

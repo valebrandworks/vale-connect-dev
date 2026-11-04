@@ -46,6 +46,10 @@
   const {data,error}=await client.from('connections').update({archived_at:archived?new Date().toISOString():null,revision:Number(current.revision)+1}).eq('id',current.id).eq('owner_id',owner).eq('revision',current.revision).select('*').maybeSingle();
   if(error)throw error;return data;
  }
- const api={fields,categories,steps,toLocal,payload,importContact,list,duplicate,create,update,overview,setArchived};
+ async function remove(client,owner,current){
+  const {data,error}=await client.from('connections').delete().eq('id',current.id).eq('owner_id',owner).eq('revision',current.revision).select('id').maybeSingle();
+  if(error)throw error;return data;
+ }
+ const api={fields,categories,steps,toLocal,payload,importContact,list,duplicate,create,update,overview,setArchived,remove};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeCloudConnections=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -30,10 +30,6 @@ DO $$ BEGIN
   RAISE EXCEPTION 'Ownership transfer allowed';
  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
  BEGIN
-  DELETE FROM public.connections WHERE full_name='Synthetic Contact';
-  RAISE EXCEPTION 'Client DELETE allowed';
- EXCEPTION WHEN insufficient_privilege THEN NULL; END;
- BEGIN
   TRUNCATE public.connections;
   RAISE EXCEPTION 'Client TRUNCATE allowed';
  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
@@ -65,5 +61,5 @@ BEGIN
  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END $$;
 RESET ROLE;
-SELECT 'PASS: connections owner read/update; stale revision guard; history retained; source identity unique per owner; cross-account, ownership transfer, DELETE, TRUNCATE, invalid category and anonymous access rejected. All fixtures rolled back.' AS result;
+SELECT 'PASS: connections owner read/update; stale revision guard; history retained; source identity unique per owner; cross-account, ownership transfer, TRUNCATE, invalid category and anonymous access rejected. All fixtures rolled back.' AS result;
 ROLLBACK;

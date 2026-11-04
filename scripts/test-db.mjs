@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -44,7 +44,10 @@ await db.close();
 const brokenRules = [
   ['connections: RLS off', CONNECTIONS, 'ALTER TABLE public.connections DISABLE ROW LEVEL SECURITY'],
   ['connections: anonymous read granted', CONNECTIONS, 'GRANT SELECT ON public.connections TO anon'],
-  ['connections: client delete granted', CONNECTIONS, 'GRANT DELETE ON public.connections TO authenticated'],
+  ['connections: client truncate granted', CONNECTIONS, 'GRANT TRUNCATE ON public.connections TO authenticated'],
+  ['deletion: visitors can call account deletion', DELETION, 'GRANT EXECUTE ON FUNCTION public.delete_my_account(text) TO anon'],
+  ['deletion: cascade removed from connections', DELETION, 'ALTER TABLE public.connections DROP CONSTRAINT connections_owner_id_fkey'],
+  ['usage: counts every account', DELETION, "CREATE OR REPLACE FUNCTION public.get_my_usage() RETURNS TABLE (plan_code text, plan_name text, max_cards integer, max_active_connections integer, card_count bigint, active_connection_count bigint, archived_connection_count bigint) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT p.code, p.name, p.max_cards, p.max_active_connections, (SELECT count(*) FROM public.public_cards), (SELECT count(*) FROM public.connections), 0::bigint FROM public.membership_plans p WHERE p.code = ''free'''"],
   ['connections: everyone can read', CONNECTIONS, 'DROP POLICY connections_select_own ON public.connections; CREATE POLICY open_read ON public.connections FOR SELECT TO authenticated USING (true)'],
   // Postgres also applies the SELECT policy to an update's new row, so both must be weakened.
   ['connections: ownership transfer possible', CONNECTIONS, 'DROP POLICY connections_update_own ON public.connections; CREATE POLICY u ON public.connections FOR UPDATE TO authenticated USING (owner_id=(SELECT auth.uid())) WITH CHECK (true); DROP POLICY connections_select_own ON public.connections; CREATE POLICY s ON public.connections FOR SELECT TO authenticated USING (true)'],
@@ -73,6 +76,15 @@ for (const [label, file, sabotage] of brokenRules) {
   report(caught, `detects broken rule: ${label}`);
   await broken.close();
 }
+
+// The launch gate passes on the finished design and fails if a protection is missing.
+const gateRows = async database => (await database.query(sql('supabase/inspection/launch_gate.sql'))).rows;
+const finished = await rebuild(repo);
+const passing = await gateRows(finished);
+report(passing.length >= 10 && passing.every(row => row.result === 'pass'), `launch gate: all ${passing.length} checks pass on the finished design`);
+await finished.exec(`GRANT SELECT ON public.public_cards TO anon; CREATE POLICY old_read ON public.public_cards FOR SELECT TO anon, authenticated USING (published = true OR owner_id = (SELECT auth.uid()))`);
+report((await gateRows(finished)).filter(row => row.result === 'FAIL').length === 3, 'launch gate: fails when public cards can be listed');
+await finished.close();
 
 // The structure snapshot returns structure only and changes nothing.
 const seeded = await rebuild(repo);
