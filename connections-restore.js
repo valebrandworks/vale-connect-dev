@@ -3,7 +3,7 @@
  'use strict';
  const core=typeof module!=='undefined'&&module.exports?require('./cloud-connections-core.js'):root.ValeCloudConnections;
  const MAX_BYTES=10*1024*1024,MAX_RECORDS=5000,uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
- const limits={full_name:90,business_name:90,email:120,phone:40,job_title:80,website:200,social_links:3000,category:40,next_step:40,notes:10000,source_identity:4096,source_url:8192};
+ const limits={full_name:90,business_name:90,email:120,phone:40,job_title:80,website:300,social_links:3000,category:40,next_step:40,notes:10000,source_identity:4096,source_url:8192};
  function parse(text){
   if(typeof text!=='string'||new TextEncoder().encode(text).length>MAX_BYTES)throw Error('Choose a JSON backup no larger than 10 MB.');
   let data;try{data=JSON.parse(text.replace(/^\ufeff/,''))}catch{throw Error('This file is not valid JSON. Choose a VALE cloud JSON backup.');}

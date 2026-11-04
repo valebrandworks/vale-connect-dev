@@ -1,0 +1,8 @@
+{
+  "name": "vale-connect-dev",
+  "private": true,
+  "description": "VALE Connect development app. Static site with no runtime dependencies.",
+  "scripts": {
+    "test": "node scripts/run-tests.cjs"
+  }
+}

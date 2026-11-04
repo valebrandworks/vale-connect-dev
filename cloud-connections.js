@@ -7,6 +7,7 @@
  const fields=Object.keys(core.fields),message=text=>{$('cloud-contacts-status').textContent=text};
  const values=()=>({...Object.fromEntries(fields.map(k=>[k,$('cloud-'+k).value])),history:selected?structuredClone(selected.history):[]});
  const editing=()=>dirty||!!$('cloud-new-note').value.trim();
+ const publish=()=>window.dispatchEvent(new CustomEvent('vale-cloud-connections-loaded',{detail:{rows:[...rows]}}));
  const discard=()=>!editing()||confirm('Discard unsaved edits in the cloud connection editor? Saved connections will not be deleted.');
  function controls(){
   $('cloud-contacts-login').hidden=!!user;$('cloud-contacts-workspace').hidden=!user;
@@ -37,7 +38,7 @@
  }
  async function load(){
   const e=epoch,owner=user.id,data=await core.list(client,owner,()=>e===epoch&&owner===user?.id);if(e!==epoch||owner!==user?.id)return false;
-  rows=data;if(selected&&!editing()){const latest=rows.find(r=>r.id===selected.id);if(latest)fill(latest)}renderList();return true;
+  rows=data;publish();if(selected&&!editing()){const latest=rows.find(r=>r.id===selected.id);if(latest)fill(latest)}renderList();return true;
  }
  async function run(work){
   if(busy||!user)return;const e=epoch;busy=true;controls();renderList();
@@ -60,6 +61,7 @@
  $('cloud-connection-form').addEventListener('input',()=>{dirty=true;controls()});
  $('cloud-connection-form').onsubmit=event=>{
   event.preventDefault();if(!user||busy)return;let contact=values();const pendingNote=$('cloud-new-note').value;try{core.payload(contact)}catch(error){message(error.message);return}
+  const site=$('cloud-cwebsite').value.trim();if(site&&!local.website(site)){message('Enter a valid website, such as example.com. Your edits were kept.');return}
   void run(async e=>{
    const data=selected?await core.update(client,user.id,selected,contact):await core.create(client,user.id,contact);
    if(e!==epoch)return;if(!data){conflict();return}fill(data);$('cloud-new-note').value=pendingNote;await load();if(e===epoch)message('Private cloud connection saved. It will appear on your other signed-in devices.');
@@ -105,7 +107,7 @@
  window.addEventListener('focus',background);window.addEventListener('online',background);window.addEventListener('vale-cloud-connections-changed',background);document.addEventListener('visibilitychange',()=>{if(!document.hidden)background()});
  window.addEventListener('vale-account-ready',event=>{
   const next=event.detail;if(user?.id===next.user?.id&&client===next.client)return;
-  epoch++;if(timer)clearInterval(timer);client=next.client;user=next.user;rows=[];busy=false;selected=null;dirty=false;
+  epoch++;if(timer)clearInterval(timer);client=next.client;user=next.user;rows=[];publish();busy=false;selected=null;dirty=false;
   $('cloud-import-panel').hidden=true;$('cloud-import-list').replaceChildren();fill(null);
   message(user?'Loading private cloud connections…':'Sign in through Cloud Account to use private cloud connections. Browser connections above are unchanged.');
   if(user){timer=setInterval(background,20000);void run(async e=>{if(await load()&&e===epoch)message('Private cloud list ready. Add a connection or review browser imports.');})}

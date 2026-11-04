@@ -12,8 +12,14 @@
   catch{throw Error('Existing connections could not be read. Nothing was saved or replaced.')}
  }
  function safeURL(value){try{const u=new URL(text(value,16000));return ['https:','http:'].includes(u.protocol)?u.href:''}catch{return ''}}
+ // Accepts what people type ("example.com") without ever upgrading another scheme to a web link.
+ function website(value){
+  const typed=text(value,16000);if(!typed)return '';
+  const exact=safeURL(typed);if(exact)return exact;
+  return /^(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\.)+\p{L}{2,}(?::\d+)?(?:[/?#]\S*)?$/u.test(typed)?safeURL('https://'+typed):'';
+ }
  function candidate(profile,source={}){
-  const c={cname:text(profile?.fullName,90),cbusiness:text(profile?.company,90),cemail:text(profile?.email,120),cphone:text(profile?.phone,40),cnotes:text(profile?.bio,600),cjobTitle:text(profile?.jobTitle,80),cwebsite:safeURL(profile?.website),csocials:text(profile?.socials,3000),ccategory:'Other',cnext:'Follow up',cdate:'',history:[],source_url:safeURL(source.url)};
+  const c={cname:text(profile?.fullName,90),cbusiness:text(profile?.company,90),cemail:text(profile?.email,120),cphone:text(profile?.phone,40),cnotes:text(profile?.bio,600),cjobTitle:text(profile?.jobTitle,80),cwebsite:website(profile?.website),csocials:text(profile?.socials,3000),ccategory:'Other',cnext:'Follow up',cdate:'',history:[],source_url:safeURL(source.url)};
   if(!c.cname)throw Error('This shared card has no valid name. Nothing was saved.');
   const cardId=text(source.cardId,100);
   c.source_identity=cardId?'card:'+cardId:'snapshot:'+JSON.stringify([normalized(c.cname),normalized(c.cbusiness),email(c.cemail),phone(c.cphone)]);
@@ -38,6 +44,6 @@
   catch{throw Error('Could not save the connection. Browser storage may be unavailable or full. Existing connections were not replaced.')}
   return {status:'saved',record};
  }
- const api={KEY,readContacts,candidate,findDuplicate,inspect,save,safeURL};
+ const api={KEY,readContacts,candidate,findDuplicate,inspect,save,safeURL,website};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeConnections=api;
 })(typeof window!=='undefined'?window:globalThis);

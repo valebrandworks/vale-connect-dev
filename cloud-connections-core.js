@@ -14,7 +14,7 @@
   const row=Object.fromEntries(Object.entries(fields).map(([k,c])=>[c,str(contact[k])]));
   row.full_name=row.full_name.trim();row.category=categories.includes(row.category)?row.category:'Other';row.next_step=steps.includes(row.next_step)?row.next_step:'Follow up';row.follow_up_on=row.follow_up_on||null;
   row.history=Array.isArray(contact.history)?structuredClone(contact.history):[];
-  row.website=local.safeURL(row.website);row.updated_at=new Date().toISOString();return row;
+  row.website=local.website(row.website);row.updated_at=new Date().toISOString();return row;
  }
  function importContact(contact){
   if(!str(contact.cname).trim())throw Error('A selected browser connection has no valid name.');
@@ -35,6 +35,13 @@
   const {data,error}=await client.from('connections').update({...payload(contact),revision:Number(current.revision)+1}).eq('id',current.id).eq('owner_id',owner).eq('revision',current.revision).select('*').maybeSingle();
   if(error)throw error;return data;
  }
- const api={fields,categories,steps,toLocal,payload,importContact,list,duplicate,create,update};
+ // Overview totals: a browser contact already imported to the cloud counts once.
+ function overview(browser,cloud,today){
+  const imported=new Set(cloud.map(row=>row.source_identity).filter(Boolean));
+  const items=[...cloud.map(row=>({next:row.next_step,date:row.follow_up_on||''})),...browser.filter(c=>!imported.has(c.source_identity||'local:'+c.id)).map(c=>({next:c.cnext,date:c.cdate||''}))];
+  const open=items.filter(item=>item.next!=='Completed');
+  return {count:items.length,follow:open.length,overdue:open.filter(item=>item.date&&item.date<today).length};
+ }
+ const api={fields,categories,steps,toLocal,payload,importContact,list,duplicate,create,update,overview};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeCloudConnections=api;
 })(typeof window!=='undefined'?window:globalThis);
