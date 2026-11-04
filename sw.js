@@ -1,7 +1,7 @@
 /* Development scope only. Cache static offline artwork/screen, never account or card responses. */
 'use strict';
 const CACHE_PREFIX='vale-connect-dev-pwa-';
-const CACHE_NAME=CACHE_PREFIX+'v10';
+const CACHE_NAME=CACHE_PREFIX+'v11';
 const scope=new URL(self.registration.scope);
 // The former development path has moved. There, remove this worker and only its own caches.
 const RETIRED_SCOPE_PATH='/vale-connect-dev/';
