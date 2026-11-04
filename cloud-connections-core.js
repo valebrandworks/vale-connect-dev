@@ -38,10 +38,14 @@
  // Overview totals: a browser contact already imported to the cloud counts once.
  function overview(browser,cloud,today){
   const imported=new Set(cloud.map(row=>row.source_identity).filter(Boolean));
-  const items=[...cloud.map(row=>({next:row.next_step,date:row.follow_up_on||''})),...browser.filter(c=>!imported.has(c.source_identity||'local:'+c.id)).map(c=>({next:c.cnext,date:c.cdate||''}))];
+  const items=[...cloud.filter(row=>!row.archived_at).map(row=>({next:row.next_step,date:row.follow_up_on||''})),...browser.filter(c=>!imported.has(c.source_identity||'local:'+c.id)).map(c=>({next:c.cnext,date:c.cdate||''}))];
   const open=items.filter(item=>item.next!=='Completed');
   return {count:items.length,follow:open.length,overdue:open.filter(item=>item.date&&item.date<today).length};
  }
- const api={fields,categories,steps,toLocal,payload,importContact,list,duplicate,create,update,overview};
+ async function setArchived(client,owner,current,archived){
+  const {data,error}=await client.from('connections').update({archived_at:archived?new Date().toISOString():null,revision:Number(current.revision)+1}).eq('id',current.id).eq('owner_id',owner).eq('revision',current.revision).select('*').maybeSingle();
+  if(error)throw error;return data;
+ }
+ const api={fields,categories,steps,toLocal,payload,importContact,list,duplicate,create,update,overview,setArchived};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeCloudConnections=api;
 })(typeof window!=='undefined'?window:globalThis);

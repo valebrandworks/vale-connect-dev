@@ -13,6 +13,8 @@
   $('cloud-contacts-login').hidden=!!user;$('cloud-contacts-workspace').hidden=!user;
   for(const id of ['cloud-contacts-new','cloud-contacts-refresh','cloud-contacts-review','cloud-contacts-save','cloud-contacts-import','cloud-export-csv','cloud-export-json'])$(id).disabled=busy||!user;
   $('cloud-contacts-note-save').disabled=busy||!user||!selected||dirty;
+  $('cloud-contacts-archive').disabled=busy||!user||!selected||dirty;
+  $('cloud-contacts-archive').textContent=selected?.archived_at?'Restore connection':'Archive connection';
   $('cloud-new-note').disabled=busy||!user||!selected;
   for(const input of $('cloud-connection-form').querySelectorAll('input,textarea,select'))input.disabled=busy||!user;
  }
@@ -32,7 +34,7 @@
   if(!rows.length){const p=document.createElement('p');p.textContent='No cloud connections yet. Add one or review browser imports.';list.append(p)}
   for(const row of rows){
    const b=document.createElement('button');b.type='button';b.className='btn alt';b.disabled=busy;
-   b.textContent=row.full_name+(row.business_name?' · '+row.business_name:'')+' · '+row.next_step+(row.follow_up_on?' · '+row.follow_up_on:'');
+   b.textContent=(row.archived_at?'Archived · ':'')+row.full_name+(row.business_name?' · '+row.business_name:'')+' · '+row.next_step+(row.follow_up_on?' · '+row.follow_up_on:'');
    b.setAttribute('aria-pressed',String(row.id===selected?.id));b.onclick=()=>{if(discard())fill(row)};list.append(b);
   }
  }
@@ -73,6 +75,14 @@
    const contact={...core.toLocal(selected),history:[...(Array.isArray(selected.history)?selected.history:[]),{date:new Date().toISOString(),text}]};
    const data=await core.update(client,user.id,selected,contact);if(e!==epoch)return;if(!data){message('This connection changed elsewhere. Your dated note is still in its box. Copy it before refreshing.');return}
    fill(data);await load();if(e===epoch)message('Dated note saved privately to your cloud connection.');
+  });
+ };
+ $('cloud-contacts-archive').onclick=()=>{
+  if(!selected||dirty||busy)return;
+  const archive=!selected.archived_at;
+  void run(async e=>{
+   const data=await core.setArchived(client,user.id,selected,archive);if(e!==epoch)return;if(!data){conflict();return}
+   fill(data);await load();if(e===epoch)message(archive?'Connection archived. It no longer counts toward your plan, and its notes are kept.':'Connection restored.');
   });
  };
  $('cloud-contacts-review').onclick=()=>{void run(async e=>{

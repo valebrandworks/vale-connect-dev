@@ -30,7 +30,7 @@ END $$;
 SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims','{"role":"anon"}',true);
 DO $$ BEGIN
- IF EXISTS(SELECT 1 FROM public.public_cards WHERE owner_id=current_setting('vale.test_user_a')::uuid) THEN RAISE EXCEPTION 'Anonymous draft read allowed'; END IF;
+ IF EXISTS(SELECT 1 FROM public.get_public_card('repair-'||current_setting('vale.test_user_a'))) THEN RAISE EXCEPTION 'Anonymous draft read allowed'; END IF;
  BEGIN
  INSERT INTO public.public_cards(owner_id,slug,display_name) VALUES(current_setting('vale.test_user_b')::uuid,'repair-'||current_setting('vale.test_user_b'),'Unauthorized');
  RAISE EXCEPTION 'Anonymous insert allowed';
@@ -42,7 +42,7 @@ UPDATE public.public_cards SET published=true WHERE owner_id=current_setting('va
 SET LOCAL ROLE anon;
 SELECT set_config('request.jwt.claims','{"role":"anon"}',true);
 DO $$ BEGIN
- IF NOT EXISTS(SELECT 1 FROM public.public_cards WHERE owner_id=current_setting('vale.test_user_a')::uuid AND published) THEN RAISE EXCEPTION 'Published card unreadable'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.get_public_card('repair-'||current_setting('vale.test_user_a'))) THEN RAISE EXCEPTION 'Published card unreadable'; END IF;
 END $$;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',json_build_object('sub',current_setting('vale.test_user_a'),'role','authenticated')::text,true);

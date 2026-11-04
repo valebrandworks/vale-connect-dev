@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -31,7 +31,10 @@ for (const { table_name: table, column_name: column } of (await db.query(`SELECT
 const expectColumns = (table, list, label) => { const missing = list.filter(column => !columns[table]?.has(column)); report(!missing.length, `app columns exist: ${label}${missing.length ? ' (missing ' + missing.join(', ') + ')' : ''}`); };
 const cardTools = require(path.join(repo, 'cards-core.js')), cloud = require(path.join(repo, 'cloud-connections-core.js')), exporter = require(path.join(repo, 'connections-export.js'));
 expectColumns('public_cards', [...Object.values(cardTools.fields), 'id', 'owner_id', 'slug', 'card_label', 'published', 'revision', 'updated_at'], 'card editor');
-expectColumns('public_cards', sql('p.html').match(/\.select\('([^']+)'\)/)[1].split(','), 'public card page');
+const lookup = (await db.query(`SELECT pg_get_function_result('public.get_public_card(text)'::regprocedure) AS r`)).rows[0].r;
+const missingFromLookup = ['id', ...Object.values(cardTools.fields)].filter(column => !new RegExp(`\\b${column}\\b`).test(lookup));
+report(!missingFromLookup.length, `public card lookup returns what the page needs${missingFromLookup.length ? ' (missing ' + missingFromLookup.join(', ') + ')' : ''}`);
+report(!/owner_id|card_label|revision|published|updated_at/.test(lookup), 'public card lookup returns no private fields');
 expectColumns('profiles', ['id', ...sql('cloud-auth.js').match(/COLUMNS='([^']+)'/)[1].split(','), 'created_at'], 'My Card sync');
 expectColumns('connections', [...Object.keys(cloud.payload({ cname: 'Synthetic' })), 'id', 'owner_id', 'source_identity', 'source_url', 'revision'], 'cloud connections');
 expectColumns('connections', exporter.columns, 'cloud backup');
@@ -51,10 +54,16 @@ const brokenRules = [
   ['profiles: client delete granted', PROFILES, 'GRANT DELETE ON public.profiles TO authenticated'],
   ['profiles: transfer possible', PROFILES, 'DROP POLICY profiles_update_own ON public.profiles; CREATE POLICY u ON public.profiles FOR UPDATE TO authenticated USING (id=(SELECT auth.uid())) WITH CHECK (true); DROP POLICY profiles_select_own ON public.profiles; CREATE POLICY s ON public.profiles FOR SELECT TO authenticated USING (true)'],
   ['cards: RLS off', CARDS, 'ALTER TABLE public.public_cards DISABLE ROW LEVEL SECURITY'],
-  ['cards: drafts readable by everyone', CARDS, 'DROP POLICY "Public can view published cards" ON public.public_cards; CREATE POLICY open_read ON public.public_cards FOR SELECT TO anon, authenticated USING (true)'],
+  ['cards: drafts readable by everyone', RULES, 'DROP POLICY public_cards_select_own ON public.public_cards; CREATE POLICY open_read ON public.public_cards FOR SELECT TO authenticated USING (true)'],
+  ['cards: anonymous table read restored', RULES, 'GRANT SELECT ON public.public_cards TO anon'],
+  ['cards: lookup returns drafts', MULTI, "CREATE OR REPLACE FUNCTION public.get_public_card(card_slug text) RETURNS TABLE (id uuid, display_name text, job_title text, business_name text, introduction text, public_email text, public_phone text, website text, social_links text) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT c.id, c.display_name, c.job_title, c.business_name, c.introduction, c.public_email, c.public_phone, c.website, c.social_links FROM public.public_cards c WHERE c.slug = card_slug'"],
+  ['rules: card trigger removed', RULES, 'DROP TRIGGER public_cards_rules ON public.public_cards'],
+  ['rules: connection trigger removed', RULES, 'DROP TRIGGER connections_rules ON public.connections'],
+  ['rules: field limits removed', RULES, 'ALTER TABLE public.public_cards DROP CONSTRAINT public_cards_field_lengths'],
+  ['rules: clients can change memberships', RULES, 'GRANT INSERT ON public.memberships TO authenticated; CREATE POLICY open_insert ON public.memberships FOR INSERT TO authenticated WITH CHECK (true)'],
   ['cards: anonymous insert granted', CARDS, 'GRANT INSERT ON public.public_cards TO anon; CREATE POLICY anon_insert ON public.public_cards FOR INSERT TO anon WITH CHECK (true)'],
-  ['cards: any account can edit a published card', MULTI, 'DROP POLICY "Users can update their own cards" ON public.public_cards; CREATE POLICY open_update ON public.public_cards FOR UPDATE TO authenticated USING (true) WITH CHECK (true)'],
-  ['cards: any account can delete a published card', MULTI, 'DROP POLICY "Users can delete their own cards" ON public.public_cards; CREATE POLICY open_delete ON public.public_cards FOR DELETE TO authenticated USING (true)'],
+  ['cards: any account can edit a published card', MULTI, 'DROP POLICY public_cards_select_own ON public.public_cards; CREATE POLICY s ON public.public_cards FOR SELECT TO authenticated USING (published OR owner_id=(SELECT auth.uid())); DROP POLICY "Users can update their own cards" ON public.public_cards; CREATE POLICY open_update ON public.public_cards FOR UPDATE TO authenticated USING (true) WITH CHECK (true)'],
+  ['cards: any account can delete a published card', MULTI, 'DROP POLICY public_cards_select_own ON public.public_cards; CREATE POLICY s ON public.public_cards FOR SELECT TO authenticated USING (published OR owner_id=(SELECT auth.uid())); DROP POLICY "Users can delete their own cards" ON public.public_cards; CREATE POLICY open_delete ON public.public_cards FOR DELETE TO authenticated USING (true)'],
 ];
 for (const [label, file, sabotage] of brokenRules) {
   const broken = await rebuild(repo);
