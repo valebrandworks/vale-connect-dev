@@ -2,7 +2,10 @@
 (()=>{
  'use strict';
  const $=id=>document.getElementById(id);
- if(!$('pwa-panel')||!location.pathname.startsWith('/vale-connect-dev/'))return;
+ if(!$('pwa-panel'))return;
+ // The former development path has moved: never register a worker there again.
+ if(location.pathname.startsWith('/vale-connect-dev/')){$('pwa-install').hidden=true;$('pwa-help').hidden=true;$('pwa-status').textContent='This address is moving to https://dev.valebrandworks.com/. Import browser connections to the cloud, then sign out here.';return}
+ if(!['dev.valebrandworks.com','localhost','127.0.0.1'].includes(location.hostname))return;
  let promptEvent=null,registration=null,reloadRequested=false,installed=false;
  const install=$('pwa-install'),help=$('pwa-help'),update=$('pwa-update'),status=$('pwa-status');
  const isStandalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;

@@ -3,10 +3,21 @@
 const CACHE_PREFIX='vale-connect-dev-pwa-';
 const CACHE_NAME=CACHE_PREFIX+'v9';
 const scope=new URL(self.registration.scope);
+// The former development path has moved. There, remove this worker and only its own caches.
+const RETIRED_SCOPE_PATH='/vale-connect-dev/';
 const staticPaths=['offline.html','assets/icons/icon-192.png','assets/icons/icon-512.png','assets/icons/maskable-512.png','assets/icons/apple-touch-icon.png'];
 const staticURLs=staticPaths.map(path=>new URL(path,scope).href);
 const offlineURL=new URL('offline.html',scope).href;
 
+if(scope.pathname===RETIRED_SCOPE_PATH){
+ self.addEventListener('install',()=>self.skipWaiting());
+ self.addEventListener('activate',event=>{
+  event.waitUntil((async()=>{
+   for(const key of await caches.keys())if(key.startsWith(CACHE_PREFIX))await caches.delete(key);
+   await self.registration.unregister();
+  })());
+ });
+}else{
 self.addEventListener('install',event=>{
  event.waitUntil((async()=>{
   const cache=await caches.open(CACHE_NAME);
@@ -46,3 +57,4 @@ self.addEventListener('fetch',event=>{
   return (await cache.match(url.href))||fetch(request);
  })());
 });
+}
