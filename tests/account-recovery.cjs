@@ -27,6 +27,8 @@ function harness(result={error:null}){
  // Change password is only offered when signed in; short sign-up passwords are refused.
  h=harness();await settle();assert.equal(h.get('cloud-change-password').hidden,true);h.event('SIGNED_IN',{id:'a',email:'a@example.invalid'});assert.equal(h.get('cloud-change-password').hidden,false);h.event('SIGNED_OUT',null);assert.equal(h.get('cloud-change-password').hidden,true);
  h.get('cloud-email').value='synthetic@example.invalid';h.get('cloud-password').value='short';await h.get('cloud-signup').handlers.click();assert.match(h.get('cloud-auth-status').textContent,/at least 8/);
+ // A browser reports its initial signed-out state through this event, before the first user check finishes.
+ h=harness();await settle();h.get('card-sync-status').textContent='Cloud sync: checking account…';h.event('INITIAL_SESSION',null);assert.match(h.get('card-sync-status').textContent,/Not signed in/);
  // Public card page uses the lookup, never the table.
  const page=fs.readFileSync(path.join(root,'p.html'),'utf8');assert.match(page,/client\.rpc\('get_public_card'/);assert.doesNotMatch(page,/from\('public_cards'\)/);
  // Archived connections leave the totals, and the core sends a guarded update.
