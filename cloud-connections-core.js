@@ -51,15 +51,17 @@
   if(error)throw error;return data;
  }
  // Search looks across details, notes and dated history. "due" includes overdue and today.
- function matches(row,{query='',category='',followUp='',today=''}={}){
-  if(category&&row.category!==category)return false;
-  if(followUp){
+ // Basic search (advanced false) looks at names only and ignores filters.
+ function matches(row,{query='',category='',followUp='',today='',advanced=true}={}){
+  if(advanced&&category&&row.category!==category)return false;
+  if(advanced&&followUp){
    const date=row.follow_up_on||'',open=row.next_step!=='Completed';
    if(!date||!open||(followUp==='overdue'?date>=today:date>today))return false;
   }
   const words=String(query).trim().toLocaleLowerCase('en').split(/\s+/).filter(Boolean);
   if(!words.length)return true;
   const history=Array.isArray(row.history)?row.history.map(entry=>entry?.text||'').join(' '):'';
+  if(!advanced)return words.every(word=>str(row.full_name).toLocaleLowerCase('en').includes(word));
   const haystack=[row.full_name,row.business_name,row.email,row.phone,row.job_title,row.notes,row.category,row.met_where,row.met_how,row.introduced_by,history].map(str).join(' ').toLocaleLowerCase('en');
   return words.every(word=>haystack.includes(word));
  }

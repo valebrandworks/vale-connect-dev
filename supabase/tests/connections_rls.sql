@@ -6,6 +6,7 @@ SELECT set_config('vale.conn_b',gen_random_uuid()::text,true);
 INSERT INTO auth.users(id,email) VALUES
 (current_setting('vale.conn_a')::uuid,'conn-a-'||current_setting('vale.conn_a')||'@example.invalid'),
 (current_setting('vale.conn_b')::uuid,'conn-b-'||current_setting('vale.conn_b')||'@example.invalid');
+INSERT INTO public.memberships(user_id,plan_code) VALUES(current_setting('vale.conn_a')::uuid,'plus');
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',json_build_object('sub',current_setting('vale.conn_a'),'role','authenticated')::text,true);
 INSERT INTO public.connections(owner_id,full_name,notes,source_identity,history)

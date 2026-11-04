@@ -8,16 +8,16 @@ async function usage(){
  const context={window:{addEventListener:(n,f)=>handlers[n]=f},document:{getElementById:get}};
  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'membership.js'),'utf8'),context);
  const row={plan_name:'Free',max_cards:1,max_active_connections:5,card_count:0,active_connection_count:3,archived_connection_count:0};
- const client={rpc:name=>{assert.equal(name,'get_my_usage');return new Promise(r=>pending.push(r))}};
+ let featureList=['advanced_search'];const client={rpc:name=>{if(name==='get_my_features')return Promise.resolve({data:featureList});assert.equal(name,'get_my_usage');return new Promise(r=>pending.push(r))}};
  handlers['vale-account-ready']({detail:{client,user:{id:'a'}}});pending.shift()({data:[row]});await settle();
  for(const id of ['usage-overview','cards-usage','cloud-contacts-usage','account-usage'])assert.equal(get(id).textContent,'Free plan · 0 of 1 cards · 3 of 5 active connections');
- const refresh=context.window.ValeUsage.refresh;
+ const refresh=context.window.ValeUsage.refresh;assert.equal(context.window.ValeUsage.has('advanced_search'),true);assert.equal(context.window.ValeUsage.has('reminders'),false);
  void refresh();pending.shift()({data:[{...row,card_count:4,active_connection_count:5,archived_connection_count:2}]});await settle();
  assert.match(get('account-usage').textContent,/4 of 1 cards · 5 of 5 active connections · 2 archived/);assert.match(get('account-usage').textContent,/reached your cards and active connections limit; existing items stay available/);
  void refresh();pending.shift()({data:[{...row,plan_name:'Plus',max_cards:3,max_active_connections:null,card_count:3,active_connection_count:40}]});await settle();
  assert.match(get('account-usage').textContent,/Plus plan · 3 of 3 cards · 40 active connections \(unlimited\) — you've reached your cards limit/);
  // A late answer for a signed-out account never appears, and errors just hide the line.
- void refresh();const late=pending.shift();handlers['vale-account-ready']({detail:{client:null,user:null}});assert.equal(get('account-usage').textContent,'');late({data:[row]});await settle();assert.equal(get('account-usage').textContent,'');
+ void refresh();const late=pending.shift();handlers['vale-account-ready']({detail:{client:null,user:null}});assert.equal(context.window.ValeUsage.has('reminders'),undefined);assert.equal(get('account-usage').textContent,'');late({data:[row]});await settle();assert.equal(get('account-usage').textContent,'');
  handlers['vale-account-ready']({detail:{client,user:{id:'b'}}});pending.shift()({error:{message:'x'}});await settle();assert.equal(get('account-usage').textContent,'');
 }
 
@@ -69,5 +69,8 @@ function cards(){
  await usage();await accountDeletion();await connections();cards();
  const gate=fs.readFileSync(path.join(root,'supabase/inspection/launch_gate.sql'),'utf8').replace(/--.*$/gm,'').trim();
  assert.equal(gate.split(';').filter(s=>s.trim()).length,1);assert.match(gate,/^SELECT\b/);
+ const core=require(path.join(root,'cloud-connections-core.js'));
+ const row={full_name:'Ana Ruiz',business_name:'Delta',notes:'banner',category:'Customer',next_step:'Follow up',follow_up_on:'2020-01-01'};
+ assert.equal(core.matches(row,{query:'ana',advanced:false}),true,'Free can search names');assert.equal(core.matches(row,{query:'delta',advanced:false}),false,'Free search is names only');assert.equal(core.matches(row,{category:'Partner',advanced:false}),true,'Free ignores filters');assert.equal(core.matches(row,{query:'delta'}),true,'Plus searches everything');
  console.log('PASS: plan and usage display; account deletion needs email, password and confirmation; connection deletion with conflict protection; archived view; card deletion guard; read-only launch gate.');
 })().catch(error=>{console.error(error);process.exitCode=1});

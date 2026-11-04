@@ -8,6 +8,7 @@
  const values=()=>({...Object.fromEntries(fields.map(k=>[k,$('cloud-'+k).value])),history:selected?structuredClone(selected.history):[]});
  const editing=()=>dirty||!!$('cloud-new-note').value.trim();
  const publish=()=>window.dispatchEvent(new CustomEvent('vale-cloud-connections-loaded',{detail:{rows:[...rows]}}));
+ const allowed=feature=>window.ValeUsage?.has?.(feature)!==false;
  const discard=()=>!editing()||confirm('Discard unsaved edits in the cloud connection editor? Saved connections will not be deleted.');
  function controls(){
   $('cloud-contacts-login').hidden=!!user;$('cloud-contacts-workspace').hidden=!user;
@@ -18,6 +19,11 @@
   $('cloud-contacts-archive').textContent=selected?.archived_at?'Restore connection':'Archive connection';
   $('cloud-new-note').disabled=busy||!user||!selected;
   for(const input of $('cloud-connection-form').querySelectorAll('input,textarea,select'))input.disabled=busy||!user;
+  for(const id of ['cloud-cmetOn','cloud-cmetWhere','cloud-cmetHow','cloud-cintroducedBy'])if(!allowed('meeting_details'))$(id).disabled=true;
+  if(!allowed('dated_history')){$('cloud-contacts-note-save').disabled=true;$('cloud-new-note').disabled=true}
+  for(const id of ['cloud-contacts-followup','cloud-contacts-category'])$(id).disabled=!allowed('advanced_search');
+  const locked=[allowed('meeting_details')?'':'meeting details and introductions',allowed('dated_history')?'':'dated relationship history',allowed('advanced_search')?'':'advanced search and filters'].filter(Boolean);
+  $('cloud-contacts-plan-note').textContent=locked.length?'Available with Plus: '+locked.join(', ')+'. Anything already saved stays here.':'';
  }
  function renderHistory(){
   const box=$('cloud-contacts-history');box.replaceChildren();
@@ -31,7 +37,7 @@
   fields.forEach(k=>{$('cloud-'+k).value=v[k]||''});$('cloud-new-note').value='';renderHistory();controls();renderList();
  }
  function renderList(){
-  const list=$('cloud-contacts-list');list.replaceChildren();const showArchived=$('cloud-contacts-view').value==='archived',filters={query:$('cloud-contacts-search').value,category:$('cloud-contacts-category').value,followUp:$('cloud-contacts-followup').value,today:new Date().toLocaleDateString('en-CA')},filtering=!!(String(filters.query).trim()||filters.category||filters.followUp),visible=rows.filter(row=>(showArchived?!!row.archived_at:!row.archived_at)&&core.matches(row,filters));$('cloud-contacts-count').textContent=String(visible.length);
+  const list=$('cloud-contacts-list');list.replaceChildren();const showArchived=$('cloud-contacts-view').value==='archived',filters={query:$('cloud-contacts-search').value,category:$('cloud-contacts-category').value,followUp:$('cloud-contacts-followup').value,today:new Date().toLocaleDateString('en-CA'),advanced:allowed('advanced_search')},filtering=!!(String(filters.query).trim()||(filters.advanced&&(filters.category||filters.followUp))),visible=rows.filter(row=>(showArchived?!!row.archived_at:!row.archived_at)&&core.matches(row,filters));$('cloud-contacts-count').textContent=String(visible.length);
   if(!visible.length){const p=document.createElement('p');p.textContent=filtering?'No connections match your search.':showArchived?'No archived connections.':'No active cloud connections. Add one or review browser imports.';list.append(p)}
   for(const row of visible){
    const b=document.createElement('button');b.type='button';b.className='btn alt';b.disabled=busy;
@@ -125,6 +131,7 @@
   });
  };
  function background(){if(user&&!busy&&!editing()&&!document.hidden&&navigator.onLine)void run(async()=>{await load()})}
+ window.addEventListener('vale-usage-updated',()=>{controls();renderList()});
  window.addEventListener('focus',background);window.addEventListener('online',background);window.addEventListener('vale-cloud-connections-changed',background);document.addEventListener('visibilitychange',()=>{if(!document.hidden)background()});
  window.addEventListener('vale-account-ready',event=>{
   const next=event.detail;if(user?.id===next.user?.id&&client===next.client)return;

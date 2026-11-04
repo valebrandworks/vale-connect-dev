@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -60,6 +60,10 @@ const brokenRules = [
   ['cards: drafts readable by everyone', RULES, 'DROP POLICY public_cards_select_own ON public.public_cards; CREATE POLICY open_read ON public.public_cards FOR SELECT TO authenticated USING (true)'],
   ['cards: anonymous table read restored', RULES, 'GRANT SELECT ON public.public_cards TO anon'],
   ['cards: lookup returns drafts', MULTI, "CREATE OR REPLACE FUNCTION public.get_public_card(card_slug text) RETURNS TABLE (id uuid, display_name text, job_title text, business_name text, introduction text, public_email text, public_phone text, website text, social_links text) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT c.id, c.display_name, c.job_title, c.business_name, c.introduction, c.public_email, c.public_phone, c.website, c.social_links FROM public.public_cards c WHERE c.slug = card_slug'"],
+  ['features: Free given dated history', FEATURES, "UPDATE public.membership_plans SET features = '{dated_history}' WHERE code = 'free'"],
+  ['features: Free given meeting details', FEATURES, "UPDATE public.membership_plans SET features = '{meeting_details}' WHERE code = 'free'"],
+  ['features: clients can change plans', FEATURES, 'GRANT UPDATE ON public.membership_plans TO authenticated; CREATE POLICY open_update ON public.membership_plans FOR UPDATE TO authenticated USING (true) WITH CHECK (true)'],
+  ['features: connection rules removed', FEATURES, 'DROP TRIGGER connections_rules ON public.connections'],
   ['rules: card trigger removed', RULES, 'DROP TRIGGER public_cards_rules ON public.public_cards'],
   ['rules: connection trigger removed', RULES, 'DROP TRIGGER connections_rules ON public.connections'],
   ['rules: field limits removed', RULES, 'ALTER TABLE public.public_cards DROP CONSTRAINT public_cards_field_lengths'],
