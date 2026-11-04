@@ -1,6 +1,6 @@
 # VALE Connect v0.9 development
 
-Development repository and Supabase project jlprxnmdvoloahssjlnu only. Production v0.8.5 is separate.
+Development repository and Supabase project jlprxnmdvoloahssjlnu only. Production is separate: the product owner reports v0.9 live with public registration closed. This repository does not define production's code or configuration.
 
 Current candidate: Build 8. Guided PC/Android export/restore and earlier install/card/sync checks passed. iPhone core checks were user-reported; its update cycle remains an accepted, unverified planning assumption. Versioned sections below describe development history; current behavior includes private cloud connections and selected JSON restore.
 
@@ -27,12 +27,12 @@ The multi-card migration preserves rows and existing slugs; it replaces the owne
 - qr-bundle.js, QR_LICENSE.txt, assets/: existing QR encoder, MIT notice and logo.
 - tests/multiple-cards.cjs: manager/core regression tests (mock network/DOM).
 - tests/blank-sharing.cjs: original sharing regression tests.
-- supabase/tests/: transactional real-role database tests; never run against production.
+- supabase/tests/: transactional real-role database tests; never run against production. supabase/inspection/structure_snapshot.sql: read-only structure query that returns no table rows.
 
 Run from repository root:
 
-    node tests/multiple-cards.cjs
-    node tests/blank-sharing.cjs
+    npm test
+    node tests/multiple-cards.cjs   (one suite)
 
 Serve as static files under /vale-connect-dev/ to check Pages routing. Use synthetic details in a fresh/private browser. User authentication and phone scans require hands-on verification. Actual managed-card creation is never done automatically on behalf of the user.
 
