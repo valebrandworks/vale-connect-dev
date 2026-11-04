@@ -31,8 +31,8 @@
   fields.forEach(k=>{$('cloud-'+k).value=v[k]||''});$('cloud-new-note').value='';renderHistory();controls();renderList();
  }
  function renderList(){
-  const list=$('cloud-contacts-list');list.replaceChildren();const showArchived=$('cloud-contacts-view').value==='archived',visible=rows.filter(row=>showArchived?!!row.archived_at:!row.archived_at);$('cloud-contacts-count').textContent=String(visible.length);
-  if(!visible.length){const p=document.createElement('p');p.textContent=showArchived?'No archived connections.':'No active cloud connections. Add one or review browser imports.';list.append(p)}
+  const list=$('cloud-contacts-list');list.replaceChildren();const showArchived=$('cloud-contacts-view').value==='archived',filters={query:$('cloud-contacts-search').value,category:$('cloud-contacts-category').value,followUp:$('cloud-contacts-followup').value,today:new Date().toLocaleDateString('en-CA')},filtering=!!(String(filters.query).trim()||filters.category||filters.followUp),visible=rows.filter(row=>(showArchived?!!row.archived_at:!row.archived_at)&&core.matches(row,filters));$('cloud-contacts-count').textContent=String(visible.length);
+  if(!visible.length){const p=document.createElement('p');p.textContent=filtering?'No connections match your search.':showArchived?'No archived connections.':'No active cloud connections. Add one or review browser imports.';list.append(p)}
   for(const row of visible){
    const b=document.createElement('button');b.type='button';b.className='btn alt';b.disabled=busy;
    b.textContent=(row.archived_at?'Archived · ':'')+row.full_name+(row.business_name?' · '+row.business_name:'')+' · '+row.next_step+(row.follow_up_on?' · '+row.follow_up_on:'');
@@ -86,7 +86,8 @@
    fill(data);await load();window.ValeUsage?.refresh();if(e===epoch)message(archive?'Connection archived. It no longer counts toward your plan, and its notes are kept.':'Connection restored.');
   });
  };
- $('cloud-contacts-view').onchange=()=>renderList();
+ for(const id of ['cloud-contacts-view','cloud-contacts-category','cloud-contacts-followup'])$(id).onchange=()=>renderList();
+ $('cloud-contacts-search').oninput=()=>renderList();
  $('cloud-contacts-delete').onclick=()=>{
   if(!selected||busy)return;
   if(!confirm('Permanently delete '+selected.full_name+' and all their private notes and dated history? Archive instead if you may want them later. This can\'t be undone.'))return;
