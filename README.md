@@ -27,7 +27,7 @@ The multi-card migration preserves rows and existing slugs; it replaces the owne
 - qr-bundle.js, QR_LICENSE.txt, assets/: existing QR encoder, MIT notice and logo.
 - tests/multiple-cards.cjs: manager/core regression tests (mock network/DOM).
 - tests/blank-sharing.cjs: original sharing regression tests.
-- supabase/tests/: transactional real-role database tests; never run against production. supabase/inspection/structure_snapshot.sql: read-only structure query that returns no table rows.
+- supabase/tests/: transactional real-role database tests; never run against production. supabase/inspection/structure_snapshot.sql: read-only structure query that returns no table rows. supabase/baseline/: objects that predate the migrations, for rebuilding a new empty database only.
 
 Run from repository root:
 

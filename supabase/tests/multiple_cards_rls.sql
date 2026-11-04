@@ -27,7 +27,7 @@ SELECT set_config('request.jwt.claims',json_build_object('sub',current_setting('
 DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM public.public_cards WHERE slug='brandworks-'||current_setting('vale.multi_a')) THEN RAISE EXCEPTION 'Private card leaked'; END IF;
  UPDATE public.public_cards SET display_name='Unauthorized' WHERE owner_id=current_setting('vale.multi_a')::uuid;
- IF FOUND THEN RAISE EXCEPTION 'Cross-account update allowed'; END IF;
+ IF FOUND THEN RAISE EXCEPTION 'Cross-account update allowed'; END IF; DELETE FROM public.public_cards WHERE owner_id=current_setting('vale.multi_a')::uuid; IF FOUND THEN RAISE EXCEPTION 'Cross-account delete allowed'; END IF;
  BEGIN
  INSERT INTO public.public_cards(owner_id,slug,display_name) VALUES(current_setting('vale.multi_a')::uuid,'blocked-'||current_setting('vale.multi_b'),'Blocked');
  RAISE EXCEPTION 'Cross-account insert allowed';

@@ -1,42 +1,40 @@
 // Checks database access rules in a temporary in-memory Postgres (PGlite).
 // Nothing here connects to Supabase or any other remote database.
-// Limits: Supabase roles and auth are imitated by SUPABASE_STUB, and public_cards
-// is not covered because the migrations do not create that table.
-import { PGlite } from '@electric-sql/pglite';
+// Limit: Supabase roles and auth are imitated, so this does not replace a test on a real project.
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { rebuild } from './db-rebuild.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const SUPABASE_STUB = `
- CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;
- CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, email text);
- CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claims',true)::json->>'sub','')::uuid $$;
- GRANT USAGE ON SCHEMA public, auth TO anon, authenticated;
- GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated;
- ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;`;
-const MIGRATIONS = ['20261102224721_restore_private_profile_sync.sql', '20261103025723_add_private_cloud_connections.sql'].map(file => 'supabase/migrations/' + file);
-const CONNECTIONS = 'supabase/tests/connections_rls.sql', PROFILES = 'supabase/tests/profiles_rls.sql';
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
-
-async function freshDatabase() {
-  const db = new PGlite();
-  await db.exec(SUPABASE_STUB);
-  for (const migration of MIGRATIONS) await db.exec(sql(migration));
-  return db;
-}
 const count = async (db, table) => (await db.query(`SELECT count(*)::int AS n FROM ${table}`)).rows[0].n;
 
-// Access tests pass on the real migrations and leave nothing behind.
-const db = await freshDatabase();
-for (const file of [CONNECTIONS, PROFILES]) {
+// Access tests pass on the rebuilt database and leave nothing behind.
+const db = await rebuild(repo);
+for (const file of TESTS) {
   try { await db.exec(sql(file)); report(true, path.basename(file)); }
   catch (error) { report(false, `${path.basename(file)}: ${error.message}`); }
 }
-for (const table of ['public.connections', 'public.profiles', 'auth.users']) report(await count(db, table) === 0, `fixtures rolled back from ${table}`);
+for (const table of ['public.connections', 'public.profiles', 'public.public_cards', 'auth.users']) report(await count(db, table) === 0, `fixtures rolled back from ${table}`);
+
+// Every column the app uses exists.
+const columns = {};
+for (const { table_name: table, column_name: column } of (await db.query(`SELECT table_name, column_name FROM information_schema.columns WHERE table_schema='public'`)).rows) (columns[table] ||= new Set()).add(column);
+const expectColumns = (table, list, label) => { const missing = list.filter(column => !columns[table]?.has(column)); report(!missing.length, `app columns exist: ${label}${missing.length ? ' (missing ' + missing.join(', ') + ')' : ''}`); };
+const cardTools = require(path.join(repo, 'cards-core.js')), cloud = require(path.join(repo, 'cloud-connections-core.js')), exporter = require(path.join(repo, 'connections-export.js'));
+expectColumns('public_cards', [...Object.values(cardTools.fields), 'id', 'owner_id', 'slug', 'card_label', 'published', 'revision', 'updated_at'], 'card editor');
+expectColumns('public_cards', sql('p.html').match(/\.select\('([^']+)'\)/)[1].split(','), 'public card page');
+expectColumns('profiles', ['id', ...sql('cloud-auth.js').match(/COLUMNS='([^']+)'/)[1].split(','), 'created_at'], 'My Card sync');
+expectColumns('connections', [...Object.keys(cloud.payload({ cname: 'Synthetic' })), 'id', 'owner_id', 'source_identity', 'source_url', 'revision'], 'cloud connections');
+expectColumns('connections', exporter.columns, 'cloud backup');
 await db.close();
 
 // Each deliberately broken rule must make its access test fail.
@@ -52,9 +50,14 @@ const brokenRules = [
   ['profiles: anonymous read granted', PROFILES, 'GRANT SELECT ON public.profiles TO anon'],
   ['profiles: client delete granted', PROFILES, 'GRANT DELETE ON public.profiles TO authenticated'],
   ['profiles: transfer possible', PROFILES, 'DROP POLICY profiles_update_own ON public.profiles; CREATE POLICY u ON public.profiles FOR UPDATE TO authenticated USING (id=(SELECT auth.uid())) WITH CHECK (true); DROP POLICY profiles_select_own ON public.profiles; CREATE POLICY s ON public.profiles FOR SELECT TO authenticated USING (true)'],
+  ['cards: RLS off', CARDS, 'ALTER TABLE public.public_cards DISABLE ROW LEVEL SECURITY'],
+  ['cards: drafts readable by everyone', CARDS, 'DROP POLICY "Public can view published cards" ON public.public_cards; CREATE POLICY open_read ON public.public_cards FOR SELECT TO anon, authenticated USING (true)'],
+  ['cards: anonymous insert granted', CARDS, 'GRANT INSERT ON public.public_cards TO anon; CREATE POLICY anon_insert ON public.public_cards FOR INSERT TO anon WITH CHECK (true)'],
+  ['cards: any account can edit a published card', MULTI, 'DROP POLICY "Users can update their own cards" ON public.public_cards; CREATE POLICY open_update ON public.public_cards FOR UPDATE TO authenticated USING (true) WITH CHECK (true)'],
+  ['cards: any account can delete a published card', MULTI, 'DROP POLICY "Users can delete their own cards" ON public.public_cards; CREATE POLICY open_delete ON public.public_cards FOR DELETE TO authenticated USING (true)'],
 ];
 for (const [label, file, sabotage] of brokenRules) {
-  const broken = await freshDatabase();
+  const broken = await rebuild(repo);
   await broken.exec(sabotage);
   let caught = false;
   try { await broken.exec(sql(file)); } catch { caught = true; }
@@ -63,7 +66,7 @@ for (const [label, file, sabotage] of brokenRules) {
 }
 
 // The structure snapshot returns structure only and changes nothing.
-const seeded = await freshDatabase();
+const seeded = await rebuild(repo);
 await seeded.exec(`CREATE FUNCTION public.demo_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
  CREATE TRIGGER demo BEFORE UPDATE ON public.connections FOR EACH ROW EXECUTE FUNCTION public.demo_fn();
  INSERT INTO auth.users VALUES ('11111111-1111-4111-8111-111111111111','SENTINEL-EMAIL@example.invalid');
