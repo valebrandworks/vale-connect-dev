@@ -6,14 +6,14 @@
 
 The database changes are in two stages, because removing direct reads before the new page is live would take published cards offline.
 
-- [ ] Back up the environment, including published cards and their links.
+- [ ] Back up the environment.
 - [ ] Apply `20261104074759_harden_cards_and_add_membership_limits.sql`.
-- [ ] Apply `add_deletion_and_usage`.
+- [ ] Apply `add_deletion_and_usage`, `add_relationship_details` and `add_plan_features`.
 - [ ] Add the site's address to the project's Auth redirect URLs.
 - [ ] Deploy the app version that reads cards through `get_public_card`.
-- [ ] Open each published card's link and scan its QR code. Details must match the backup.
+- [ ] Open a published test card's link and scan its QR code.
 - [ ] Apply `20261104100100_restrict_public_card_reads.sql`.
-- [ ] Open each published card's link and scan its QR code again.
+- [ ] Open that card's link and scan its QR code again.
 - [ ] Run `supabase/inspection/launch_gate.sql`. **Every row must say pass.** It's read-only.
 
 ## Accounts
@@ -35,9 +35,9 @@ The database changes are in two stages, because removing direct reads before the
 ## Hosting
 
 - [ ] The site is on its own web address.
-- [ ] A redirect is verified for existing card links and QR codes, if the address changes.
+- [ ] Any card links and QR codes already shared at launch are accounted for, if the address changes.
 - [ ] Content security policy and script integrity are reviewed.
 
 ## Every production change
 
-Back up and verify published cards and their links first. Afterward, confirm their information, URLs and QR codes still work.
+Needs the product owner's explicit approval, a backup first, and a check afterward that the app and public cards work.

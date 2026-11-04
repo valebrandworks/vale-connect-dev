@@ -4,9 +4,7 @@ This repository is public. Track security findings privately, not here.
 
 ## Requirements for every production change
 
-The VALE Brandworks and VALE Connect cards are published in production. In development, cards with those names are drafts.
-
-Before any production migration or deployment, back up and verify both published records and their links. Afterward, confirm their information, existing URLs and QR codes still work. Changes to how public cards are read, to link names or to hosting must be staged so these links never break.
+Production changes need the product owner's explicit approval. Changes to how public cards are read must be staged as described in `docs/launch-checklist.md`, so any card in use at that time keeps working.
 
 ## Next reliability milestone
 
