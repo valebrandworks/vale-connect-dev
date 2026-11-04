@@ -1,7 +1,7 @@
 /* Read-only account exports. No browser persistence or database writes. */
 (function(root){
  'use strict';
- const columns=['id','full_name','business_name','email','phone','job_title','website','social_links','category','next_step','follow_up_on','notes','history','source_identity','source_url','revision','created_at','updated_at'];
+ const columns=['id','full_name','business_name','email','phone','job_title','website','social_links','category','next_step','follow_up_on','met_on','met_where','met_how','introduced_by','notes','history','source_identity','source_url','archived_at','revision','created_at','updated_at'];
  function clean(row){return Object.fromEntries(columns.map(k=>[k,k==='history'?structuredClone(Array.isArray(row[k])?row[k]:[]):row[k]??null]))}
  async function fetchAll(client,owner,valid=()=>true){
   if(!owner)throw Error('Sign in before exporting cloud connections.');

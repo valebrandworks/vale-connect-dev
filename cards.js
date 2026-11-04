@@ -12,6 +12,7 @@
   $('cards-workspace').hidden=!user;
   for(const id of ['cards-new','cards-refresh','cards-save','cards-publish'])$(id).disabled=busy||!user;
   $('cards-publish').disabled=busy||!user||!selected;
+  $('cards-delete').disabled=busy||!user||!selected;
   $('cards-publish').textContent=selected?.published?'Unpublish card':'Publish card';
   $('cards-state').textContent=selected?(selected.published?'Published — these card fields are public.':'Private draft — visible only to your account.'):'New private draft';
   $('multi-slug').disabled=!!selected||busy;
@@ -62,7 +63,7 @@
   const requestEpoch=epoch,owner=user.id;
   const data=await window.ValeAccountLists.read(client,'public_cards',owner,()=>requestEpoch===epoch&&owner===user?.id);
   if(requestEpoch!==epoch||owner!==user?.id)return false;
-  cards=data.sort((a,b)=>a.card_label.localeCompare(b.card_label)||a.id.localeCompare(b.id));renderList();return true;
+  cards=data.sort((a,b)=>a.card_label.localeCompare(b.card_label)||a.id.localeCompare(b.id));renderList();window.ValeUsage?.refresh();return true;
  }
  async function run(work){
   if(busy||!user)return;const requestEpoch=epoch;busy=true;controls();renderList();
@@ -101,6 +102,16 @@
    const {data,error}=await client.from('public_cards').update({published:publish,revision:Number(selected.revision)+1,updated_at:new Date().toISOString()}).eq('id',selected.id).eq('owner_id',user.id).eq('revision',selected.revision).select('*').maybeSingle();
    if(requestEpoch!==epoch)return;if(error)throw error;if(!data){conflict();return}
    fill(data);message(publish?'Card published. Public link and QR are ready.':'Card unpublished. The public link no longer displays it.');await listCards();
+  });
+ };
+ $('cards-delete').onclick=()=>{
+  if(!selected||busy)return;
+  const consequence=selected.published?'This card is published: its public link and QR codes will stop working permanently.':'This private draft will be removed.';
+  if(!confirm('Delete "'+selected.card_label+'"? '+consequence+' Its link name can\'t be used again. This can\'t be undone.'))return;
+  void run(async requestEpoch=>{
+   const {data,error}=await client.from('public_cards').delete().eq('id',selected.id).eq('owner_id',user.id).eq('revision',selected.revision).select('id').maybeSingle();
+   if(requestEpoch!==epoch)return;if(error)throw error;if(!data){conflict();return}
+   clearForm();await listCards();if(requestEpoch===epoch)message('Card deleted.');
   });
  };
  $('cards-qr-download').onclick=()=>{
