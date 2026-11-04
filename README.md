@@ -33,6 +33,7 @@ Run from repository root:
 
     npm test
     node tests/multiple-cards.cjs   (one suite)
+    npm install --ignore-scripts && npm run test:db   (access rules, in a temporary in-memory database; never connects to Supabase)
 
 Serve as static files under /vale-connect-dev/ to check Pages routing. Use synthetic details in a fresh/private browser. User authentication and phone scans require hands-on verification. Actual managed-card creation is never done automatically on behalf of the user.
 
