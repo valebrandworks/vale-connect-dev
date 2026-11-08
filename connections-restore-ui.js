@@ -19,15 +19,15 @@
   }
   $('cloud-restore-summary').textContent=entries.length+' in backup; '+saved+' already present/repeated; '+possible+' possible matches. Nothing is selected or imported automatically.';controls();
  }
- $('cloud-restore-clear').onclick=()=>{if(!busy){clear();status('Preview cleared. No cloud data was deleted.')}};
- $('cloud-restore-file').onchange=()=>{entries=[];$('cloud-restore-list').replaceChildren();$('cloud-restore-summary').textContent='';status('File selected. Next: click Preview backup. Nothing has been imported.');controls()};
+ $('cloud-restore-clear').onclick=()=>{if(!busy){clear();status('Preview cleared. Nothing was changed.')}};
+ $('cloud-restore-file').onchange=()=>{entries=[];$('cloud-restore-list').replaceChildren();$('cloud-restore-summary').textContent='';status('File selected. Choose Preview to see what it contains. Nothing has been added.');controls()};
  $('cloud-restore-preview').onclick=async()=>{
-  if(busy||!user)return;const file=$('cloud-restore-file').files?.[0];if(!file){status('Choose a VALE development JSON backup first.');return}
+  if(busy||!user)return;const file=$('cloud-restore-file').files?.[0];if(!file){status('Choose a backup file first.');return}
   const e=epoch,account=user,api=client;busy=true;entries=[];$('cloud-restore-list').replaceChildren();$('cloud-restore-summary').textContent='';controls();
   try{
    if(file.size>restore.MAX_BYTES)throw Error('Choose a backup no larger than 10 MB.');
    const text=await file.text();if(e!==epoch)return;
-   const backup=restore.parse(text);status('Checking the saved cloud list. No backup data has been imported.');
+   const backup=restore.parse(text);status('Checking your connections. Nothing has been added yet.');
    const rows=await exporter.fetchAll(api,account.id,()=>e===epoch);if(e!==epoch)return;
    render(restore.preview(backup.records,rows));status('Preview for '+account.email+'. Review details, then select only missing connections you want to add. Existing details and notes will not be replaced.');
   }catch(error){if(e===epoch)status(error.message||'Could not preview this backup. Nothing was imported.')}
@@ -50,6 +50,6 @@
   }catch(error){if(e===epoch)status((error.message||'Restore could not start.')+' Preview again before retrying. Existing connections were not overwritten.')}
   finally{if(e===epoch){busy=false;controls()}}
  };
- window.addEventListener('vale-account-ready',event=>{const next=event.detail;if(user?.id===next.user?.id&&client===next.client)return;epoch++;client=next.client;user=next.user;busy=false;clear();status(user?'Choose a development JSON backup to preview for '+user.email+'.':'Sign in to preview or restore cloud connections.');});
- clear();status('Sign in to preview or restore cloud connections.');
+ window.addEventListener('vale-account-ready',event=>{const next=event.detail;if(user?.id===next.user?.id&&client===next.client)return;epoch++;client=next.client;user=next.user;busy=false;clear();status(user?'':'Sign in to restore connections.');});
+ clear();status('Sign in to restore connections.');
 })();
