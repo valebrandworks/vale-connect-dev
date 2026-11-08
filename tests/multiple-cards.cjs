@@ -37,10 +37,15 @@ class Query{
 }
 // Empty simulated storage: these cards have no images, so making one private only changes the card.
 const storageCalls=[];const client={from:()=>new Query(),storage:{from:()=>({list:async d=>{storageCalls.push('list:'+d);return {data:[],error:null}},copy:async()=>({error:{message:'unexpected copy'}}),remove:async p=>{storageCalls.push('remove');return {data:[],error:null}}})}};
-const view={render:data=>Object.assign(new Element('rendered'),{data}),web:s=>/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(String(s).replace(/^https?:\/\//,''))?'https://'+s:null};
+const renders=[];const view={PRESETS:['charcoal','ivory','midnight','slate'],preset:v=>['charcoal','ivory','midnight','slate'].includes(v)?v:'charcoal',render:(data,options={})=>{renders.push(options.preset);return Object.assign(new Element('rendered'),{data,preset:options.preset})},web:s=>/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(String(s).replace(/^https?:\/\//,''))?'https://'+s:null};
 const context={window:{ValeCardImages:require(path.join(path.resolve(root),'card-images.js')),ValeAccountLists:require(path.join(path.resolve(root),'account-lists.js')),ValeCardTools:tools,ValeCardView:view,ValeUsage:{usage:()=>usage,refresh(){}},ValeApp:{tab(){}},
  addEventListener:(k,fn)=>{handlers[k]=fn},dispatchEvent:e=>events.push(e)},document:{getElementById:get,createElement:()=>new Element('made'),addEventListener(){},hidden:false},
  confirm:()=>consent,CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},Event:class{constructor(t){this.type=t}},crypto:{randomUUID:()=>'abcdef12-3456'},navigator:{onLine:true}};
+// Appearance buttons, as in index.html.
+const presetButtons=['charcoal','ivory','midnight','slate'].map(v=>Object.assign(new Element('preset-'+v),{dataset:{value:v},tabIndex:-1,getAttribute(k){return this.attrs[k]}}));
+context.document.querySelectorAll=sel=>sel.includes('card-appearance')?presetButtons:[];context.document.querySelector=()=>null;
+const checked=()=>presetButtons.filter(b=>b.attrs['aria-checked']==='true').map(b=>b.dataset.value);
+const pick=v=>presetButtons.find(b=>b.dataset.value===v).fire('click');
 context.window.window=context.window;
 vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'cards.js'),'utf8'),context);
 const settle=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve))};
@@ -54,11 +59,14 @@ const lastSelected=()=>events.filter(e=>e.type==='vale-card-selected').pop().det
  assert.equal(get('card-empty').hidden,false);assert.equal(get('card-home').hidden,true);
  get('card-create').onclick();assert.equal(get('card-editor').hidden,false);assert.equal(get('card-label-field').hidden,true,'Free never sees card names');
  assert.equal(get('multi-published').checked,false,'new cards start private');assert.equal(get('card-public-field').hidden,true,'no Public option before the first save');assert.equal(get('card-draft-note').hidden,false);assert.equal(get('card-delete-section').hidden,true);
+ assert.deepEqual(checked(),['charcoal'],'new cards start with Charcoal');
+ pick('midnight');assert.deepEqual(checked(),['midnight']);assert.equal(get('card-editor-preview').children[0].preset,'midnight','the editor previews the chosen appearance');
  type('multi-fullName','Ana Ruiz');assert.equal(get('multi-slug').value,'ana-ruiz-abcdef','link name follows the name until edited');
  type('multi-website','not a website');await save();assert.equal(rows.length,0);assert.match(get('cards-status').textContent,/website/);
  type('multi-website','example.com');await save();
  assert.equal(rows.length,1);assert.equal(rows[0].owner_id,'owner-a');assert.equal(rows[0].card_label,'My card');assert.equal(rows[0].slug,'ana-ruiz-abcdef');
- assert.equal(inserts.at(-1).published,false,'the insert itself asks for a private draft, as the database requires');assert.equal(rows[0].published,false);
+ assert.equal(inserts.at(-1).published,false,'the insert itself asks for a private draft, as the database requires');assert.equal(rows[0].appearance,'midnight','appearance is saved');
+ assert.equal(get('card-preview').children[0].preset,'midnight','the card screen shows the saved appearance');assert.equal(rows[0].published,false);
  assert.match(get('cards-status').textContent,/Draft saved/);
  // The card itself is the screen, with Share beneath it. No switcher or second card on Free.
  assert.equal(get('card-editor').hidden,true);assert.equal(get('card-home').hidden,false);assert.equal(get('card-preview').children[0].data.fullName,'Ana Ruiz');
@@ -70,11 +78,14 @@ const lastSelected=()=>events.filter(e=>e.type==='vale-card-selected').pop().det
  assert.equal(get('card-visibility').textContent,'Public');assert.equal(get('card-publish-row').hidden,true);assert.equal(get('card-share-row').hidden,false);assert.match(get('cards-status').textContent,/Published/);
  assert.equal(lastSelected().card.slug,'ana-ruiz-abcdef');assert.equal(lastSelected().loaded,true);
  // Editing keeps the link name fixed and is guarded by the card's revision.
- get('card-edit').onclick();assert.equal(get('multi-slug').readOnly,true);assert.equal(get('card-delete-section').hidden,false);
+ get('card-edit').onclick();assert.deepEqual(checked(),['midnight'],'the editor opens on the saved appearance');
+ // Arrow keys move between appearances, as in any radio group.
+ presetButtons.find(b=>b.dataset.value==='midnight').fire('keydown',{key:'ArrowRight',preventDefault(){}});assert.deepEqual(checked(),['slate']);
+ assert.equal(get('multi-slug').readOnly,true);assert.equal(get('card-delete-section').hidden,false);
  type('multi-company','Delta');get('multi-published').checked=false;await save();
  assert.ok(storageCalls.includes('list:'+rows[0].id),'making a published card private goes through image rotation');assert.match(get('cards-status').textContent,/earlier links/);
  assert.equal(get('card-public-field').hidden,false,'existing cards can be made private again');
- assert.equal(rows[0].business_name,'Delta');assert.equal(rows[0].published,false);assert.equal(rows[0].revision,2);assert.match(get('card-visibility').textContent,/Private/);
+ assert.equal(rows[0].business_name,'Delta');assert.equal(rows[0].appearance,'slate','appearance kept when a card is made private');assert.equal(rows[0].published,false);assert.equal(rows[0].revision,2);assert.match(get('card-visibility').textContent,/Private/);
  get('card-edit').onclick();rows[0].revision=9;rows[0].display_name='Other device';type('multi-fullName','Stale edit');await save();
  assert.equal(rows[0].display_name,'Other device');assert.equal(get('multi-fullName').value,'Stale edit');assert.equal(get('card-editor').hidden,false);assert.match(get('cards-status').textContent,/another device/);
  rows[0].revision=2;

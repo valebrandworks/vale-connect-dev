@@ -2,6 +2,8 @@
 (function(root){
  'use strict';
  const text=v=>String(v??'').trim();
+ const PRESETS=['charcoal','ivory','midnight','slate'];
+ const preset=v=>PRESETS.includes(v)?v:'charcoal';
  function web(value){
   let s=text(value);if(!s)return null;
   if(!/^[a-z][a-z0-9+.-]*:/i.test(s))s='https://'+s;
@@ -31,10 +33,10 @@
   globe:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm6.9 8h-3a14 14 0 0 0-1.3-5.4A7 7 0 0 1 18.9 11zM12 5c.9 1.2 1.8 3.4 1.9 6h-3.8c.1-2.6 1-4.8 1.9-6zM9.4 5.6A14 14 0 0 0 8.1 11h-3a7 7 0 0 1 4.3-5.4zM5.1 13h3a14 14 0 0 0 1.3 5.4A7 7 0 0 1 5.1 13zm6.9 6c-.9-1.2-1.8-3.4-1.9-6h3.8c-.1 2.6-1 4.8-1.9 6zm2.6-.6a14 14 0 0 0 1.3-5.4h3a7 7 0 0 1-4.3 5.4z'
  };
  function glyph(doc,name){const ns='http://www.w3.org/2000/svg',svg=doc.createElementNS(ns,'svg'),p=doc.createElementNS(ns,'path');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');p.setAttribute('d',glyphs[name]);p.setAttribute('fill','currentColor');svg.append(p);return svg}
- // options: photoUrl and logoUrl (image slots; initials show when there is no photo), preset (appearance name).
+ // options: photoUrl and logoUrl (image slots; initials show when there is no photo), preset (one of PRESETS; anything else shows Charcoal).
  function render(data,options={},doc=root.document){
   const el=(tag,cls,value)=>{const e=doc.createElement(tag);if(cls)e.className=cls;if(value!==undefined)e.textContent=value;return e};
-  const card=el('article','vcard');card.dataset.preset=options.preset||'classic';
+  const card=el('article','vcard');card.dataset.preset=preset(options.preset);
   card.append(el('div','mark','VALE CONNECT'));
   if(options.logoUrl){const logo=el('img','logo');logo.src=options.logoUrl;logo.alt=text(data.company)?text(data.company)+' logo':'Logo';card.append(logo)}
   const head=el('div','head');
@@ -63,6 +65,6 @@
   }
   return card;
  }
- const api={render,links,web,sameAddress,initials};
+ const api={render,links,web,sameAddress,initials,PRESETS,preset};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeCardView=api;
 })(typeof window!=='undefined'?window:globalThis);

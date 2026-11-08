@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><meta name="theme-color" content="#111317"><title>VALE Connect card</title><link rel="stylesheet" href="styles.css?v=10"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png"><meta name="apple-mobile-web-app-title" content="VALE Dev"></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><meta name="theme-color" content="#111317"><title>VALE Connect card</title><link rel="stylesheet" href="styles.css?v=12"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png"><meta name="apple-mobile-web-app-title" content="VALE Dev"></head><body>
 <main class="wrap" style="padding-bottom:40px">
  <p id="status" class="muted center" role="status" style="padding:40px 0">Loading card…</p>
  <section id="profile" hidden>
@@ -8,7 +8,7 @@
  </section>
  <p class="footer">Shared with VALE Connect · <a href="./">Create your own card</a></p>
 </main>
-<script src="ui-ask.js?v=10"></script><script src="platform-icons.js?v=10"></script><script src="card-view.js?v=10"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script><script src="cards-core.js?v=10"></script><script src="connections-core.js?v=5"></script><script src="account-lists.js?v=7"></script><script src="cloud-connections-core.js?v=12"></script><script src="cloud-save-ui.js?v=10"></script><script>
+<script src="ui-ask.js?v=10"></script><script src="platform-icons.js?v=10"></script><script src="card-view.js?v=11"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script><script src="cards-core.js?v=10"></script><script src="connections-core.js?v=5"></script><script src="account-lists.js?v=7"></script><script src="cloud-connections-core.js?v=12"></script><script src="cloud-save-ui.js?v=10"></script><script>
 (async()=>{'use strict';
 const $=id=>document.getElementById(id);
 const slug=new URLSearchParams(location.search).get('u')||'';
@@ -23,7 +23,7 @@ try{
  const data=found?.[0]||null;
  if(!data){$('status').textContent='This card is not available.';return}
  const values=window.ValeCardTools.toEditor(data);
- $('card').replaceChildren(window.ValeCardView.render(values));
+ $('card').replaceChildren(window.ValeCardView.render(values,{preset:data.appearance}));
  $('save-contact').onclick=()=>{const url=URL.createObjectURL(new Blob([window.ValeCardTools.vcard(values)],{type:'text/vcard;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=slug+'.vcf';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000)};
  window.ValeCloudSave?.mount('publicCloudSave',values,{cardId:data.id,url:location.href});
  $('status').hidden=true;$('profile').hidden=false;document.title=data.display_name+' · VALE Connect';
