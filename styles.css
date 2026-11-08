@@ -85,24 +85,39 @@ details>summary{cursor:pointer;color:var(--ivory-2);font-weight:600;padding:6px 
 .hero p{color:var(--ivory-2)}
 .footer{margin-top:28px;color:var(--muted);font-size:12px;text-align:center}
 
-/* The digital card */
-.vcard{position:relative;overflow:hidden;border-radius:20px;padding:22px;background:linear-gradient(160deg,#23262c,#16181c 70%);border:1px solid #c9a45c55;color:var(--ivory);box-shadow:0 18px 40px #0007}
+/* The digital card. Each appearance preset sets the same variables; text contrast meets WCAG AA. */
+.vcard{--c-bg1:#23262c;--c-bg2:#16181c;--c-border:#c9a45c55;--c-text:#f4efe4;--c-role:#d9bf87;--c-muted:#cfc8ba;--c-mark:#c9a45c;--c-photo-bg:#2a2620;--c-photo-ring:#c9a45c;--c-pill-border:#c9a45c44;--c-pill-bg:#ffffff06;--c-icon:#c9a45c;--c-shadow:0 18px 40px #0007;
+ position:relative;overflow:hidden;border-radius:20px;padding:22px;background:linear-gradient(160deg,var(--c-bg1),var(--c-bg2) 70%);border:1px solid var(--c-border);color:var(--c-text);box-shadow:var(--c-shadow)}
+.vcard[data-preset=ivory]{--c-bg1:#f7f2e8;--c-bg2:#ebe3d2;--c-border:#b08a3e;--c-text:#1b1d22;--c-role:#7a5d22;--c-muted:#45423c;--c-mark:#7a5d22;--c-photo-bg:#e9e0cf;--c-photo-ring:#b08a3e;--c-pill-border:#b08a3e88;--c-pill-bg:#ffffff80;--c-icon:#7a5d22;--c-shadow:0 18px 40px #0005}
+.vcard[data-preset=midnight]{--c-bg1:#0d0d10;--c-bg2:#050506;--c-border:#d4af37;--c-text:#f7f2e6;--c-role:#e6c76a;--c-muted:#bdb6a6;--c-mark:#d4af37;--c-photo-bg:#1a1710;--c-photo-ring:#d4af37;--c-pill-border:#d4af3766;--c-pill-bg:#ffffff05;--c-icon:#d4af37}
+.vcard[data-preset=slate]{--c-bg1:#2f3740;--c-bg2:#242b33;--c-border:#c9a45c55;--c-text:#f1f1ee;--c-role:#e3cf9f;--c-muted:#c9ced4;--c-mark:#d9bf87;--c-photo-bg:#38404a;--c-photo-ring:#c9a45c;--c-pill-border:#ffffff33;--c-pill-bg:#ffffff08;--c-icon:#e3cf9f}
 .vcard:after{content:'';position:absolute;inset:0;border-radius:20px;pointer-events:none;box-shadow:inset 0 1px 0 #ffffff10}
-.vcard .mark{font-size:10px;letter-spacing:.3em;color:var(--gold)}
+.vcard .mark{font-size:10px;letter-spacing:.3em;color:var(--c-mark)}
 .vcard .logo{position:absolute;top:18px;right:18px;width:44px;height:44px;border-radius:10px;object-fit:contain;background:#fff}
 .vcard .head{display:flex;gap:14px;align-items:center;margin-top:16px}
-.vcard .photo{flex:none;width:72px;height:72px;border-radius:50%;object-fit:cover;border:2px solid var(--gold);background:#2a2620;display:grid;place-items:center;color:var(--gold-soft);font-size:24px;font-weight:600}
+.vcard .photo{flex:none;width:72px;height:72px;border-radius:50%;object-fit:cover;border:2px solid var(--c-photo-ring);background:var(--c-photo-bg);display:grid;place-items:center;color:var(--c-role);font-size:24px;font-weight:600}
 .vcard .name{font-size:22px;font-weight:600;line-height:1.2;overflow-wrap:anywhere}
-.vcard .role{color:var(--gold-soft);font-size:14px;margin-top:2px}
-.vcard .company{color:var(--ivory-2);font-size:14px}
-.vcard .intro{color:var(--ivory-2);font-size:14px;margin-top:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.vcard .role{color:var(--c-role);font-size:14px;margin-top:2px}
+.vcard .company{color:var(--c-muted);font-size:14px}
+.vcard .intro{color:var(--c-muted);font-size:14px;margin-top:14px;white-space:pre-wrap;overflow-wrap:anywhere}
 .vcard .contact{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
-.vcard .contact a{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:20px;border:1px solid #c9a45c44;color:var(--ivory);text-decoration:none;font-size:13px;background:#ffffff06}
-.vcard .contact svg{width:15px;height:15px;color:var(--gold)}
+.vcard .contact a{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:20px;border:1px solid var(--c-pill-border);color:var(--c-text);text-decoration:none;font-size:13px;background:var(--c-pill-bg)}
+.vcard .contact svg{width:15px;height:15px;color:var(--c-icon)}
 .vcard .socials{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
 .vcard .socials a{display:inline-flex;border-radius:9px;text-decoration:none}
 .vcard .socials .platform-icon{width:34px;height:34px;display:block}
-.vcard .socials .text-link{padding:7px 12px;border-radius:20px;border:1px solid var(--line-strong);color:var(--ivory-2);font-size:13px}
+.vcard .socials .text-link{padding:7px 12px;border-radius:20px;border:1px solid var(--c-pill-border);color:var(--c-muted);font-size:13px;background:var(--c-pill-bg)}
+
+/* Appearance picker */
+.presets{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.preset{border:1px solid var(--line-strong);border-radius:12px;padding:6px;background:var(--surface-2);display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;color:var(--ivory-2)}
+.preset .swatch{width:100%;height:34px;border-radius:8px;border:1px solid #ffffff22}
+.preset[aria-checked=true]{border-color:var(--gold);color:var(--ivory);box-shadow:0 0 0 1px var(--gold) inset}
+.preset[data-value=charcoal] .swatch{background:linear-gradient(160deg,#23262c,#16181c);border-color:#c9a45c88}
+.preset[data-value=ivory] .swatch{background:linear-gradient(160deg,#f7f2e8,#ebe3d2);border-color:#b08a3e}
+.preset[data-value=midnight] .swatch{background:linear-gradient(160deg,#0d0d10,#050506);border-color:#d4af37}
+.preset[data-value=slate] .swatch{background:linear-gradient(160deg,#2f3740,#242b33);border-color:#c9a45c88}
+.editor-preview{margin-bottom:6px}
 
 /* In-page confirmation */
 dialog.ask{border:1px solid var(--line-strong);border-radius:16px;background:var(--surface);color:var(--ivory);padding:20px;max-width:min(420px,calc(100vw - 32px))}

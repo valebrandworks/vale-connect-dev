@@ -18,7 +18,10 @@ check('website typed without https:// is kept, unsafe values never become links'
  const view=require(path.join(root,'card-view.js'));
  assert.equal(view.web('example.com'),'https://example.com/');assert.equal(view.web('http://example.com'),'http://example.com/');
  for(const unsafe of ['javascript:alert(1)','data:text/html,x','mailto:a@example.com','file:///c:/x','localhost','not a website'])assert.equal(view.web(unsafe),null,unsafe);
- assert.match(viewer,/ValeCardView\.render\(values\)/);
+ assert.match(viewer,/ValeCardView\.render\(values,\{preset:data\.appearance\}\)/);
+ // Appearance presets: only the four known names; anything else shows Charcoal.
+ assert.deepEqual(view.PRESETS,['charcoal','ivory','midnight','slate']);
+ for(const [given,shown] of [['ivory','ivory'],['midnight','midnight'],['slate','slate'],['charcoal','charcoal'],['neon','charcoal'],[undefined,'charcoal'],['"><script>','charcoal']])assert.equal(view.preset(given),shown,String(given));
  const row={id:'11111111-1111-4111-8111-111111111111',full_name:'Synthetic',category:'Other',next_step:'Follow up',history:[],website:core.payload({cname:'x',cwebsite:'a'.repeat(190)+'.example.com/'}).website};
  assert.ok(row.website.length>200);
  assert.equal(restore.parse(JSON.stringify({format:'vale-connect-cloud-connections',version:1,environment:'development',count:1,connections:[row]})).count,1);

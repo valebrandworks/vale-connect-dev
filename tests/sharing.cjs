@@ -44,7 +44,7 @@ function page(search){
  const long=Buffer.from(JSON.stringify({fullName:'Long Link',company:'Older Co',socials:'https://www.linkedin.com/in/someone'})).toString('base64url');
  const legacy=page('?card='+long);
  assert.equal(legacy.get('app').hidden,true);assert.equal(legacy.get('publicView').hidden,false);
- const rendered=legacy.get('publicCard').children[0];assert.equal(rendered.className,'vcard');
+ const rendered=legacy.get('publicCard').children[0];assert.equal(rendered.className,'vcard');assert.equal(rendered.dataset.preset,'charcoal','older links use the default appearance');
  assert.equal(legacy.calls.cloud[0][1].fullName,'Long Link');assert.equal(legacy.calls.cloud[0][1].company,'Older Co');
  for(const bad of ['%%%',Buffer.from('[]').toString('base64url'),Buffer.from(JSON.stringify({fullName:'  '})).toString('base64url')]){
   const broken=page('?card='+bad);assert.match(broken.get('publicCard').textContent,/damaged or incomplete/);assert.equal(broken.get('savePublic').hidden,true);assert.equal(broken.calls.cloud.length,0);
