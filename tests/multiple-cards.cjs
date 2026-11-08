@@ -35,9 +35,10 @@ class Query{
   return {data:found.slice(this.start||0,(this.end??found.length)+1).map(r=>({...r})),count:found.length,error:null};
  }
 }
-const client={from:()=>new Query()};
+// Empty simulated storage: these cards have no images, so making one private only changes the card.
+const storageCalls=[];const client={from:()=>new Query(),storage:{from:()=>({list:async d=>{storageCalls.push('list:'+d);return {data:[],error:null}},copy:async()=>({error:{message:'unexpected copy'}}),remove:async p=>{storageCalls.push('remove');return {data:[],error:null}}})}};
 const view={render:data=>Object.assign(new Element('rendered'),{data}),web:s=>/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(String(s).replace(/^https?:\/\//,''))?'https://'+s:null};
-const context={window:{ValeAccountLists:require(path.join(path.resolve(root),'account-lists.js')),ValeCardTools:tools,ValeCardView:view,ValeUsage:{usage:()=>usage,refresh(){}},ValeApp:{tab(){}},
+const context={window:{ValeCardImages:require(path.join(path.resolve(root),'card-images.js')),ValeAccountLists:require(path.join(path.resolve(root),'account-lists.js')),ValeCardTools:tools,ValeCardView:view,ValeUsage:{usage:()=>usage,refresh(){}},ValeApp:{tab(){}},
  addEventListener:(k,fn)=>{handlers[k]=fn},dispatchEvent:e=>events.push(e)},document:{getElementById:get,createElement:()=>new Element('made'),addEventListener(){},hidden:false},
  confirm:()=>consent,CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},Event:class{constructor(t){this.type=t}},crypto:{randomUUID:()=>'abcdef12-3456'},navigator:{onLine:true}};
 context.window.window=context.window;
@@ -71,6 +72,7 @@ const lastSelected=()=>events.filter(e=>e.type==='vale-card-selected').pop().det
  // Editing keeps the link name fixed and is guarded by the card's revision.
  get('card-edit').onclick();assert.equal(get('multi-slug').readOnly,true);assert.equal(get('card-delete-section').hidden,false);
  type('multi-company','Delta');get('multi-published').checked=false;await save();
+ assert.ok(storageCalls.includes('list:'+rows[0].id),'making a published card private goes through image rotation');assert.match(get('cards-status').textContent,/earlier links/);
  assert.equal(get('card-public-field').hidden,false,'existing cards can be made private again');
  assert.equal(rows[0].business_name,'Delta');assert.equal(rows[0].published,false);assert.equal(rows[0].revision,2);assert.match(get('card-visibility').textContent,/Private/);
  get('card-edit').onclick();rows[0].revision=9;rows[0].display_name='Other device';type('multi-fullName','Stale edit');await save();
