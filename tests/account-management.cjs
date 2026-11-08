@@ -23,19 +23,19 @@ async function usage(){
 
 async function accountDeletion(){
  const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,{value:'',textContent:'',hidden:false,handlers:{},addEventListener(n,f){this.handlers[n]=f}});return elements.get(id)};
- let order=[],signInError=null,rpcError=null,consent=true,auth;
+ let order=[],signInError=null,rpcError=null,auth;
  const client={auth:{getUser:async()=>({data:{user:null}}),onAuthStateChange:fn=>auth=fn,signInWithPassword:async c=>{order.push('signin:'+c.email);return {error:signInError}},signOut:async o=>{order.push('signout:'+o?.scope);return {error:null}}},rpc:async(n,a)=>{order.push(n+':'+a.confirm_email);return {error:rpcError}},from(){return {select(){return this},eq(){return this},maybeSingle:async()=>({data:null})}}};
- const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){}},document:{getElementById:get,addEventListener(){},hidden:false},localStorage:{getItem:()=>null,setItem(){}},setInterval:()=>1,clearInterval(){},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},confirm:()=>consent,location:{origin:'https://dev.valebrandworks.com',pathname:'/'}};
+ const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){}},document:{getElementById:get,addEventListener(){},hidden:false},localStorage:{getItem:()=>null,setItem(){}},setInterval:()=>1,clearInterval(){},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},confirm:()=>{throw new Error('account deletion must not depend on a browser dialog')},location:{origin:'https://dev.valebrandworks.com',pathname:'/'}};
  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-auth.js'),'utf8'),context);await settle();
  const click=()=>get('cloud-delete-account').handlers.click(),status=()=>get('cloud-delete-status').textContent;
  await click();assert.equal(order.length,0,'nothing while signed out');
  auth('SIGNED_IN',{user:{id:'a',email:'Owner@example.invalid'}});await settle();
  get('cloud-delete-email').value='wrong@example.invalid';get('cloud-delete-password').value='Synthetic-1';await click();assert.equal(order.length,0);assert.match(status(),/Type your account email/);
  get('cloud-delete-email').value='owner@example.invalid';get('cloud-delete-password').value='';await click();assert.equal(order.length,0);assert.match(status(),/password/i);
- get('cloud-delete-password').value='Synthetic-1';consent=false;await click();assert.equal(order.length,0);assert.match(status(),/Nothing was deleted/);consent=true;
- signInError={message:'bad'};await click();assert.deepEqual(order,['signin:Owner@example.invalid']);assert.match(status(),/Nothing was deleted/);assert.equal(get('cloud-delete-password').value,'');signInError=null;order=[];
- get('cloud-delete-password').value='Synthetic-1';rpcError={message:'Please sign in again.'};await click();assert.deepEqual(order,['signin:Owner@example.invalid','delete_my_account:owner@example.invalid']);assert.match(status(),/Please sign in again/);rpcError=null;order=[];
- get('cloud-delete-password').value='Synthetic-1';await click();assert.deepEqual(order,['signin:Owner@example.invalid','delete_my_account:owner@example.invalid','signout:local']);assert.match(get('cloud-auth-status').textContent,/account was deleted/);
+ get('cloud-delete-password').value='Synthetic-1';get('cloud-delete-understand').checked=false;await click();assert.equal(order.length,0);assert.match(status(),/Tick the box.*Nothing was deleted/);get('cloud-delete-understand').checked=true;
+ signInError={message:'bad'};await click();assert.deepEqual(order,['signin:Owner@example.invalid']);assert.match(status(),/Nothing was deleted/);assert.equal(get('cloud-delete-password').value,'');assert.equal(get('cloud-delete-understand').checked,false,'tick box resets after an attempt');signInError=null;order=[];
+ get('cloud-delete-password').value='Synthetic-1';get('cloud-delete-understand').checked=true;rpcError={message:'Please sign in again.'};await click();assert.deepEqual(order,['signin:Owner@example.invalid','delete_my_account:owner@example.invalid']);assert.match(status(),/Please sign in again/);rpcError=null;order=[];
+ get('cloud-delete-password').value='Synthetic-1';get('cloud-delete-understand').checked=true;await click();assert.deepEqual(order,['signin:Owner@example.invalid','delete_my_account:owner@example.invalid','signout:local']);assert.match(get('cloud-auth-status').textContent,/account was deleted/);
 }
 
 async function connections(){

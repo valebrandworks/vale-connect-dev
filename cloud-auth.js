@@ -79,8 +79,9 @@ $('cloud-delete-account').addEventListener('click',async()=>{
  const email=$('cloud-delete-email').value.trim(),password=$('cloud-delete-password').value,accountEmail=user.email;
  if(email.toLowerCase()!==String(accountEmail).toLowerCase()){msg('cloud-delete-status','Type your account email exactly. Nothing was deleted.');return}
  if(!password){msg('cloud-delete-status','Enter your password. Nothing was deleted.');return}
- if(!confirm('Permanently delete this account and all its cards and cloud connections? Public card links and QR codes will stop working. This can\u2019t be undone.')){msg('cloud-delete-status','Cancelled. Nothing was deleted.');return}
- msg('cloud-delete-status','Confirming it\u2019s you…');$('cloud-delete-password').value='';
+ // An in-page tick box, not confirm(): some browsers and embedded panes block dialogs, and a blocked confirm() looks like Cancel.
+ if(!$('cloud-delete-understand').checked){msg('cloud-delete-status','Tick the box to confirm you understand. Nothing was deleted.');return}
+ msg('cloud-delete-status','Confirming it\u2019s you…');$('cloud-delete-password').value='';$('cloud-delete-understand').checked=false;
  const {error:signInError}=await client.auth.signInWithPassword({email:accountEmail,password});
  if(signInError){msg('cloud-delete-status','That password wasn\u2019t accepted. Nothing was deleted.');return}
  const {error}=await client.rpc('delete_my_account',{confirm_email:email});
