@@ -26,6 +26,8 @@
   if(!allowed('dated_history')){$('cloud-contacts-note-save').disabled=true;$('cloud-new-note').disabled=true}
   for(const id of ['cloud-contacts-followup','cloud-contacts-category'])$(id).disabled=!allowed('advanced_search');
   for(const el of document.querySelectorAll?.('[data-feature]')||[])el.hidden=!shown(el.dataset.feature);
+  // Free searches names only, so the box says so.
+  $('cloud-contacts-search').placeholder=shown('advanced_search')?'Search connections':'Search by name';
   const note=window.ValeUsage?.nearLimit?.(window.ValeUsage.usage?.())||'';
   $('cloud-contacts-plan-note').textContent=note;$('cloud-contacts-plan-note').hidden=!note;
   if($('cloud-contacts-editor')){$('cloud-contacts-editor').hidden=!open;$('cloud-contacts-browse').hidden=open}

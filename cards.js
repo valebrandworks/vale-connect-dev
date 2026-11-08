@@ -21,7 +21,8 @@
   $('card-editor').hidden=!isEditing;
   if(selected&&!isEditing){
    $('card-preview').replaceChildren(view.render(tools.toEditor(selected)));
-   const pill=$('card-visibility');pill.className='pill'+(selected.published?' public':'');pill.textContent=selected.published?'Public':'Private · only you can see it';
+   const pill=$('card-visibility');pill.className='pill'+(selected.published?' public':'');pill.textContent=selected.published?'Public':'Private draft · only you can see it';
+   $('card-publish-row').hidden=!!selected.published;$('card-share-row').hidden=!selected.published;
    $('card-link-name').textContent=multi()?selected.card_label:'';
   }
   const switcher=$('card-switcher');switcher.replaceChildren();switcher.hidden=!multi()||isEditing||!cards.length;
@@ -38,7 +39,8 @@
   $('card-label-field').hidden=!multi();
   $('multi-slug').value=row?row.slug:'';$('multi-slug').readOnly=!!row;
   $('card-slug-hint').textContent=row?'Your card’s link name is fixed so printed QR codes keep working.':'Lowercase letters, numbers and hyphens. It can’t be changed later, so printed QR codes keep working.';
-  $('multi-published').checked=row?!!row.published:true;
+  // New cards always start as private drafts (the database requires it); publishing comes after review.
+  $('multi-published').checked=row?!!row.published:false;$('card-public-field').hidden=!row;$('card-draft-note').hidden=!!row;
   $('card-delete-section').hidden=!row;$('card-delete-section').open=false;$('card-delete-understand').checked=false;
   $('card-editor-title').textContent=row?'Edit card':'Create your card';
   message(values?'Review these details, then save.':'');
@@ -64,6 +66,17 @@
  $('card-create').onclick=()=>openEditor(null);
  $('cards-new').onclick=()=>openEditor(null);
  $('card-edit').onclick=()=>selected&&openEditor(selected);
+ // Publishing is its own step, confirmed in the page, after the person has seen their saved card.
+ $('card-publish').onclick=async()=>{
+  const row=selected;if(!row||row.published||busy)return;
+  if(!await ask('Publish this card? Its name, contact details, introduction and links will be visible to anyone with its link or QR code.',{confirmLabel:'Publish'}))return;
+  if(selected!==row)return;
+  void run(async e=>{
+   const {data,error}=await client.from('public_cards').update({published:true,revision:Number(row.revision)+1,updated_at:new Date().toISOString()}).eq('id',row.id).eq('owner_id',user.id).eq('revision',row.revision).select('*').maybeSingle();
+   if(e!==epoch)return;if(error)throw error;if(!data){message('This card was changed on another device. Nothing was published.');return}
+   selected=data;await listCards();if(e===epoch){message('Published. Your link and QR code are ready.');window.dispatchEvent(new Event('vale-cards-changed'))}
+  });
+ };
  $('card-cancel').onclick=()=>void closeEditor();
  $('card-editor').onsubmit=event=>{
   event.preventDefault();if(!user||busy)return;
@@ -73,16 +86,16 @@
   const label=$('multi-label').value.trim()||row?.card_label||'My card',slug=row?row.slug:($('multi-slug').value.trim()||slugFrom(values.fullName));
   const site=values.website;if(site&&!view.web(site)){message('Enter a website such as example.com.');return}
   const invalid=tools.validate(label,slug,values);if(invalid){message(invalid);return}
-  const published=$('multi-published').checked;
+  const published=row?$('multi-published').checked:false;
   void run(async e=>{
    const payload={...tools.toRow(values),card_label:label,published,updated_at:new Date().toISOString()};
    const query=row
     ?client.from('public_cards').update({...payload,revision:Number(row.revision)+1}).eq('id',row.id).eq('owner_id',user.id).eq('revision',row.revision).select('*').maybeSingle()
-    :client.from('public_cards').insert({...payload,owner_id:user.id,slug}).select('*').single();
+    :client.from('public_cards').insert({...payload,published:false,owner_id:user.id,slug}).select('*').single();
    const {data,error}=await query;if(e!==epoch)return;if(error)throw error;
    if(!data){message('This card was changed on another device. Nothing was overwritten, and your changes are still in the form.');return}
    selected=data;editing=null;dirty=false;$('multi-slug').dataset.touched='';
-   await listCards();if(e===epoch){message(published?'Saved. Your card is public.':'Saved. Your card is private.');window.dispatchEvent(new Event('vale-cards-changed'))}
+   await listCards();if(e===epoch){message(!row?'Draft saved. Review your card, then choose Review and publish.':published?'Saved. Your card is public.':'Saved. Your card is private.');window.dispatchEvent(new Event('vale-cards-changed'))}
   });
  };
  $('cards-delete').onclick=()=>{

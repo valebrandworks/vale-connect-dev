@@ -1,4 +1,4 @@
-/* Validate development JSON backups and prepare insert-only restores. */
+/* Validate VALE Connect JSON backups and prepare insert-only restores. */
 (function(root){
  'use strict';
  const core=typeof module!=='undefined'&&module.exports?require('./cloud-connections-core.js'):root.ValeCloudConnections;
@@ -6,8 +6,8 @@
  const limits={full_name:90,business_name:90,email:120,phone:40,job_title:80,website:300,social_links:3000,category:40,next_step:40,notes:10000,met_where:200,met_how:200,introduced_by:120,source_identity:4096,source_url:8192};
  function parse(text){
   if(typeof text!=='string'||new TextEncoder().encode(text).length>MAX_BYTES)throw Error('Choose a JSON backup no larger than 10 MB.');
-  let data;try{data=JSON.parse(text.replace(/^\ufeff/,''))}catch{throw Error('This file is not valid JSON. Choose a VALE cloud JSON backup.');}
-  if(!data||data.format!=='vale-connect-cloud-connections'||data.version!==1||data.environment!=='development')throw Error('Choose a version 1 VALE development cloud backup. CSV and production files are not supported.');
+  let data;try{data=JSON.parse(text.replace(/^\ufeff/,''))}catch{throw Error('This file can’t be read as a backup. Choose a Full backup (JSON) downloaded from VALE Connect.');}
+  if(!data||data.format!=='vale-connect-cloud-connections'||data.version!==1||data.environment!=='development')throw Error('This isn’t a VALE Connect backup file. Choose a Full backup (JSON) downloaded from VALE Connect.');
   if(!Array.isArray(data.connections)||data.connections.length>MAX_RECORDS||data.count!==data.connections.length)throw Error('The backup count is invalid or exceeds 5,000 connections. Nothing was imported.');
   const records=data.connections.map((row,index)=>{
    const fail=()=>{throw Error('Connection '+(index+1)+' has invalid or unsupported fields. Nothing was imported.');};

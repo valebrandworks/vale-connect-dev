@@ -41,7 +41,14 @@ expectColumns('connections', exporter.columns, 'cloud backup');
 await db.close();
 
 // Each deliberately broken rule must make its access test fail.
+// The card rules function with only its drafts-first check removed.
+const cardRules = sql('supabase/migrations/20261104074759_harden_cards_and_add_membership_limits.sql').replace(/\r\n/g, '\n');
+const rulesStart = cardRules.indexOf('CREATE FUNCTION public.enforce_card_rules()'), rulesEnd = cardRules.indexOf('\nEND $$;', rulesStart) + 8;
+const draftsLine = "  IF NEW.published THEN RAISE EXCEPTION 'New cards start as private drafts. Save it first, then publish.'; END IF;\n";
+if (rulesStart < 0 || rulesEnd < 8 || !cardRules.slice(rulesStart, rulesEnd).includes(draftsLine)) throw new Error('Card rules function not found for the drafts-first check');
+const draftsOff = cardRules.slice(rulesStart, rulesEnd).replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION').replace(draftsLine, '');
 const brokenRules = [
+  ['cards: new cards can be published immediately', RULES, draftsOff],
   ['connections: RLS off', CONNECTIONS, 'ALTER TABLE public.connections DISABLE ROW LEVEL SECURITY'],
   ['connections: anonymous read granted', CONNECTIONS, 'GRANT SELECT ON public.connections TO anon'],
   ['connections: client truncate granted', CONNECTIONS, 'GRANT TRUNCATE ON public.connections TO authenticated'],
