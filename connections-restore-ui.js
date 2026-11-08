@@ -39,7 +39,7 @@
   if(!chosen.length){status('Select at least one new connection in the preview.');return}
   if(chosen.length>50){status('Restore at most 50 selected connections at a time.');return}
   const e=epoch,account=user,api=client;
-  if(!confirm('Add '+chosen.length+' selected backup connections, including private notes, to '+account.email+'? Possible matches will be separate entries. Existing connections and notes will not be overwritten.'))return;
+  if(!await (window.ValeAsk?window.ValeAsk:(t=>Promise.resolve(confirm(t))))('Add '+chosen.length+' selected backup connections, including private notes, to '+account.email+'? Possible matches will be separate entries. Existing connections and notes will not be overwritten.'))return;
   busy=true;controls();
   try{
    const rows=await exporter.fetchAll(api,account.id,()=>e===epoch);if(e!==epoch)return;

@@ -12,7 +12,7 @@ The database changes are in two stages, because removing direct reads before the
 - [ ] Add the site's address to the project's Auth redirect URLs.
 - [ ] Deploy the app version that reads cards through `get_public_card`.
 - [ ] Open a published test card's link and scan its QR code.
-- [ ] Apply `20261104100100_restrict_public_card_reads.sql`.
+- [ ] Apply `20261108203429_restrict_public_card_reads.sql`.
 - [ ] Open that card's link and scan its QR code again.
 - [ ] Run `supabase/inspection/launch_gate.sql`. **Every row must say pass.** It's read-only.
 
@@ -41,3 +41,12 @@ The database changes are in two stages, because removing direct reads before the
 ## Every production change
 
 Needs the product owner's explicit approval, a backup first, and a check afterward that the app and public cards work.
+
+## Status on development (2026-11-08)
+
+Development only. Production has none of this yet, and its sign-ups stay off.
+
+- **Public cards:** every step done. Migrations applied, the `get_public_card` page deployed, `restrict_public_card_reads` applied as version `20261108203429`, and `launch_gate.sql` passes 10 of 10.
+- **Account deletion:** tested end to end with a throwaway account through the app (PR #14 replaced the browser dialog with an in-page tick box). Its account, card, connections, profile and membership were removed. Its link name was retired and its link shows "not available". Other data was unchanged.
+- **Own web address:** `https://dev.valebrandworks.com`, with HTTPS enforced and plain HTTP redirecting to HTTPS. The old address redirects there.
+- **Still open:** real email delivery and password reset by email, bot protection, password and leaked-password settings, Privacy Policy and Terms, automatic backups with a restore rehearsal, monitoring and support, final plan limits, shared-device browser data, and the content security policy review.

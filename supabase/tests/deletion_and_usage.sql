@@ -22,7 +22,7 @@ DO $$
 DECLARE u record;
 BEGIN
  SELECT * INTO u FROM public.get_my_usage();
- IF u.plan_code<>'free' OR u.max_cards<>1 OR u.max_active_connections<>5 THEN RAISE EXCEPTION 'Wrong plan limits in usage'; END IF;
+ IF u.plan_code<>'free' OR u.max_cards<>1 OR u.max_active_connections IS DISTINCT FROM (SELECT max_active_connections FROM public.membership_plans WHERE code='free') OR u.max_active_connections IS NULL THEN RAISE EXCEPTION 'Wrong plan limits in usage'; END IF;
  IF u.card_count<>1 OR u.active_connection_count<>2 OR u.archived_connection_count<>1 THEN RAISE EXCEPTION 'Wrong usage counts'; END IF;
  DELETE FROM public.connections WHERE full_name='Remove A';
  IF NOT FOUND THEN RAISE EXCEPTION 'Owner could not delete a connection'; END IF;

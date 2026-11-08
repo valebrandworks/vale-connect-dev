@@ -1,10 +1,19 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>VALE Connect | Public Card Preview</title><style>
-:root{font-family:system-ui,Arial,sans-serif;color:#f5f0e6;background:#10151c}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px}.card{max-width:480px;width:100%;border:1px solid #ad873d;border-radius:20px;background:#1b222b;padding:30px;box-shadow:0 15px 60px #0007}h1{font-size:28px;margin:0 0 4px}.brand{color:#d9ae52;font-size:12px;letter-spacing:.2em;margin-bottom:24px}.muted{color:#b6bdc6}a{color:#e7bd68;overflow-wrap:anywhere}.links{display:grid;gap:12px;margin-top:20px}.links a{padding:12px;border:1px solid #6b592e;border-radius:10px;text-decoration:none}p{line-height:1.6;white-space:pre-wrap}small{color:#aab2bb}.connection-save{margin-top:24px;border-top:1px solid #ffffff25;padding-top:16px}.connection-save button{background:#d9ae52;color:#111;border:1px solid #d9ae52}.connection-save button:disabled{opacity:.55;cursor:default}.connection-save p{font-size:14px}</style><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png"><meta name="apple-mobile-web-app-title" content="VALE Dev"></head><body><main class="card"><div class="brand">VALE CONNECT · BEYOND THE BUSINESS CARD</div><div id="status" role="status">Loading public card…</div><section id="profile" hidden><h1 id="name"></h1><div id="title" class="muted"></div><div id="company"></div><p id="intro"></p><div class="links" id="links"></div><div id="publicConnectionSave" class="connection-save"></div><div id="publicCloudSave" class="connection-save"></div></section><hr style="border:0;border-top:1px solid #ffffff25;margin-top:25px"><small>Powered by VALE Connect</small></main><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script><script src="cards-core.js?v=091multi"></script><script src="connections-core.js?v=5"></script><script src="connections-ui.js?v=4"></script><script src="account-lists.js?v=7"></script><script src="cloud-connections-core.js?v=12"></script><script src="cloud-save-ui.js?v=7"></script><script>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><meta name="theme-color" content="#111317"><title>VALE Connect card</title><link rel="stylesheet" href="styles.css?v=10"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png"><meta name="apple-mobile-web-app-title" content="VALE Dev"></head><body>
+<main class="wrap" style="padding-bottom:40px">
+ <p id="status" class="muted center" role="status" style="padding:40px 0">Loading card…</p>
+ <section id="profile" hidden>
+  <div id="card"></div>
+  <div class="actions"><button id="save-contact" class="btn primary block" type="button">Save contact</button></div>
+  <div id="publicCloudSave" class="panel" style="margin-top:14px"></div>
+ </section>
+ <p class="footer">Shared with VALE Connect · <a href="./">Create your own card</a></p>
+</main>
+<script src="ui-ask.js?v=10"></script><script src="platform-icons.js?v=10"></script><script src="card-view.js?v=10"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script><script src="cards-core.js?v=10"></script><script src="connections-core.js?v=5"></script><script src="account-lists.js?v=7"></script><script src="cloud-connections-core.js?v=12"></script><script src="cloud-save-ui.js?v=10"></script><script>
 (async()=>{'use strict';
 const $=id=>document.getElementById(id);
 const slug=new URLSearchParams(location.search).get('u')||'';
-if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||slug.length<3||slug.length>60){$('status').textContent='Invalid card link.';return}
-if(!window.supabase){$('status').textContent='Connection unavailable. Try again later.';return}
+if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||slug.length<3||slug.length>60){$('status').textContent='This card link isn’t valid.';return}
+if(!window.supabase){$('status').textContent='This card can’t load right now. Try again later.';return}
 const client=window.supabase.createClient('https://jlprxnmdvoloahssjlnu.supabase.co','sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_');
 client.auth.getUser().then(({data})=>window.dispatchEvent(new CustomEvent('vale-account-ready',{detail:{client,user:data?.user||null}}))).catch(()=>{});
 client.auth.onAuthStateChange((_event,session)=>window.dispatchEvent(new CustomEvent('vale-account-ready',{detail:{client,user:session?.user||null}})));
@@ -13,17 +22,11 @@ try{
  if(error)throw error;
  const data=found?.[0]||null;
  if(!data){$('status').textContent='This card is not available.';return}
- $('name').textContent=data.display_name;$('title').textContent=data.job_title;$('company').textContent=data.business_name;$('intro').textContent=data.introduction;
- const add=(label,href)=>{const a=document.createElement('a');a.textContent=label;a.href=href;a.target='_blank';a.rel='noopener noreferrer';$('links').append(a)};
- if(data.public_email)add('Email','mailto:'+encodeURIComponent(data.public_email));
- if(data.public_phone)add('Call','tel:'+data.public_phone.replace(/[^+\d]/g,''));
- const safeURL=(s)=>{try{const u=new URL(s);return ['https:','http:'].includes(u.protocol)?u.href:null}catch{return null}};
- if(data.website){const u=window.ValeConnections.website(data.website);if(u)add('Website',u)}
- for(const line of (data.social_links||'').split('\n')){const [label,...parts]=line.split('|');const u=safeURL(parts.join('|').trim());if(label&&u)add(label.trim(),u)}
- const save=document.createElement('button');save.type='button';save.textContent='Save to contacts (.vcf)';save.style.cssText='padding:12px;border-radius:10px;cursor:pointer';
- save.onclick=()=>{const body=window.ValeCardTools.vcard(window.ValeCardTools.toEditor(data));const url=URL.createObjectURL(new Blob([body],{type:'text/vcard;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='vale-connect-contact.vcf';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)};
- $('links').append(save);window.ValeConnectionUI?.mount('publicConnectionSave',window.ValeCardTools.toEditor(data),{cardId:data.id,url:location.href});window.ValeCloudSave?.mount('publicCloudSave',window.ValeCardTools.toEditor(data),{cardId:data.id,url:location.href});
- $('status').hidden=true;$('profile').hidden=false;document.title=data.display_name+' | VALE Connect';
-}catch(e){$('status').textContent='Unable to load card. Check that public cards are configured.';console.error('Public card load failed',e)}
+ const values=window.ValeCardTools.toEditor(data);
+ $('card').replaceChildren(window.ValeCardView.render(values));
+ $('save-contact').onclick=()=>{const url=URL.createObjectURL(new Blob([window.ValeCardTools.vcard(values)],{type:'text/vcard;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=slug+'.vcf';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000)};
+ window.ValeCloudSave?.mount('publicCloudSave',values,{cardId:data.id,url:location.href});
+ $('status').hidden=true;$('profile').hidden=false;document.title=data.display_name+' · VALE Connect';
+}catch(e){$('status').textContent='This card can’t load right now. Try again later.';console.error('Public card load failed',e)}
 })();
 </script></body></html>

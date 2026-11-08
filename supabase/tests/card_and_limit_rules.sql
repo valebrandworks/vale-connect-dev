@@ -24,8 +24,8 @@ BEGIN
  BEGIN UPDATE public.public_cards SET display_name='   ' WHERE slug=first_slug; RAISE EXCEPTION 'Blank display name allowed'; EXCEPTION WHEN check_violation THEN NULL; END;
  BEGIN UPDATE public.public_cards SET introduction=repeat('x',301) WHERE slug=first_slug; RAISE EXCEPTION 'Oversized introduction allowed'; EXCEPTION WHEN check_violation THEN NULL; END;
  UPDATE public.public_cards SET published=true WHERE slug=first_slug;
- -- Five active connections are allowed; a sixth isn't; archiving frees a place.
- FOR i IN 1..5 LOOP INSERT INTO public.connections(owner_id,full_name) VALUES(a,'Synthetic '||i); END LOOP;
+ -- Free's active-connection limit is reached exactly; one more isn't allowed; archiving frees a place.
+ FOR i IN 1..(SELECT max_active_connections FROM public.membership_plans WHERE code='free') LOOP INSERT INTO public.connections(owner_id,full_name) VALUES(a,'Synthetic '||i); END LOOP;
  BEGIN INSERT INTO public.connections(owner_id,full_name) VALUES(a,'Sixth'); RAISE EXCEPTION 'CHECK: sixth Free connection allowed';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'CHECK:%' THEN RAISE; END IF; END;
  BEGIN INSERT INTO public.connections(owner_id,full_name,notes) VALUES(a,'Big',repeat('x',10001)); RAISE EXCEPTION 'CHECK: oversized notes or sixth connection allowed';

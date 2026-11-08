@@ -19,19 +19,4 @@ const blocked=storage();blocked.setItem=()=>{throw Error('quota')};assert.throws
 assert.equal(core.candidate({...person,website:'javascript:alert(1)'},{url:'javascript:alert(1)'}).cwebsite,'');
 assert.equal(core.candidate(person,{url:'javascript:alert(1)'}).source_url,'');
 
-class Element{constructor(tag){this.tag=tag;this.children=[];this.style={};this.attrs={};this.hidden=false;this.disabled=false;this.textContent=''}append(...nodes){this.children.push(...nodes)}replaceChildren(){this.children=[]}setAttribute(k,v){this.attrs[k]=v}}
-const host=new Element('div');let consent=false,confirms=0,events=0,lockCalls=0;
-s=storage();const context={window:{ValeConnections:core,dispatchEvent:()=>events++},document:{getElementById:()=>host,createElement:tag=>new Element(tag)},localStorage:s,location:{href:source.url},navigator:{locks:{request:async(name,work)=>{assert.equal(name,'vale-connect-dev-contacts');lockCalls++;return work()}}},URL,Event,confirm:()=>{confirms++;return consent}};
-vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'connections-ui.js'),'utf8'),context);
-function controls(){return {save:host.children[1].children[0],separate:host.children[1].children[1],status:host.children[2],open:host.children[3]}}
-(async()=>{
- context.window.ValeConnectionUI.mount('host',person,source);let ui=controls();
- assert.match(host.children[0].textContent,/No sign-in required/);assert.match(ui.open.href,/\?view=connections$/);
- assert.equal(s.writes(),0);await ui.save.onclick();assert.equal(s.writes(),0);assert.equal(confirms,1);assert.equal(ui.save.disabled,false);
- consent=true;await ui.save.onclick();assert.equal(s.writes(),1);assert.equal(events,1);assert.equal(ui.save.disabled,true);assert.match(ui.status.textContent,/this browser only/);
- context.window.ValeConnectionUI.mount('host',person,source);ui=controls();assert.equal(ui.save.disabled,true);assert.equal(ui.separate.hidden,true);assert.match(ui.status.textContent,/Already saved/);assert.equal(s.writes(),1);
- context.localStorage=storage(JSON.stringify([manual]));context.window.ValeConnectionUI.mount('host',person,source);ui=controls();assert.equal(ui.separate.hidden,false);assert.match(ui.status.textContent,/possible match/);await ui.separate.onclick();assert.equal(JSON.parse(context.localStorage.raw()).length,2);assert.deepEqual(JSON.parse(context.localStorage.raw())[1],manual);
- assert(lockCalls>=3);
- console.log('PASS: explicit local save/cancel; stable-card and snapshot duplicates; email/phone/name-company matches; separate-entry choice; existing notes/history preservation; corrupt/full storage protection; safe links; no-sign-in messaging and scoped lock.');
-})().catch(e=>{console.error(e);process.exitCode=1});
-
+console.log('PASS: browser connection records read safely; stable-card and snapshot duplicates; email/phone/name-company matches; separate entries keep existing notes; unreadable or full storage never overwritten; unsafe links dropped.');

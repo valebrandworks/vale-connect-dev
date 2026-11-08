@@ -24,7 +24,7 @@ These features are currently available on every plan. Which ones are Plus-only i
 
 Applied: `20261104080556_add_deletion_and_usage.sql` and `20261104080840_add_relationship_details.sql`.
 
-Not applied: `20261104100100_restrict_public_card_reads.sql`, which must follow a deployed page. See `docs/launch-checklist.md`.
+Not applied: `20261108203429_restrict_public_card_reads.sql`, which must follow a deployed page. See `docs/launch-checklist.md`.
 
 ## Not done yet
 
