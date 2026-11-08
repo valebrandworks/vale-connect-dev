@@ -1,8 +1,8 @@
 # VALE Connect v0.9 development
 
-Development repository and Supabase project jlprxnmdvoloahssjlnu only. Production v0.8.5 is separate.
+Development repository and Supabase project jlprxnmdvoloahssjlnu only. Production is separate: the product owner reports v0.9 live with public registration closed. This repository does not define production's code or configuration.
 
-Current candidate: Build 8. Guided PC/Android export/restore and earlier install/card/sync checks passed. iPhone core checks were user-reported; its update cycle remains an accepted, unverified planning assumption. Versioned sections below describe development history; current behavior includes private cloud connections and selected JSON restore.
+Current candidate: Build 9, prepared for the development address https://dev.valebrandworks.com/ and not yet deployed. Build 8 is the last deployed build. Guided PC/Android export/restore and earlier install/card/sync checks passed. iPhone core checks were user-reported; its update cycle remains an accepted, unverified planning assumption. Versioned sections below describe development history; current behavior includes private cloud connections and selected JSON restore.
 
 ## Two card workflows
 
@@ -27,14 +27,15 @@ The multi-card migration preserves rows and existing slugs; it replaces the owne
 - qr-bundle.js, QR_LICENSE.txt, assets/: existing QR encoder, MIT notice and logo.
 - tests/multiple-cards.cjs: manager/core regression tests (mock network/DOM).
 - tests/blank-sharing.cjs: original sharing regression tests.
-- supabase/tests/: transactional real-role database tests; never run against production.
+- supabase/tests/: transactional real-role database tests; never run against production. supabase/inspection/structure_snapshot.sql: read-only structure query that returns no table rows. supabase/baseline/: objects that predate the migrations, for rebuilding a new empty database only.
 
 Run from repository root:
 
-    node tests/multiple-cards.cjs
-    node tests/blank-sharing.cjs
+    npm test
+    node tests/multiple-cards.cjs   (one suite)
+    npm install --ignore-scripts && npm run test:db   (access rules, in a temporary in-memory database; never connects to Supabase)
 
-Serve as static files under /vale-connect-dev/ to check Pages routing. Use synthetic details in a fresh/private browser. User authentication and phone scans require hands-on verification. Actual managed-card creation is never done automatically on behalf of the user.
+Serve as static files at a site root to check routing. Use synthetic details in a fresh/private browser. User authentication and phone scans require hands-on verification. Actual managed-card creation is never done automatically on behalf of the user.
 
 ## Development releases and rollback
 
@@ -50,9 +51,9 @@ QR blob 395aac77ecee54627700ebce01c77d8442b9cbde; logo blob 97f20ad180c205dc9292
 
 ## PWA development candidate
 
-manifest.webmanifest identifies only /vale-connect-dev/ as VALE Connect Development (VALE Dev), launches in standalone mode and uses icons derived from the existing brand artwork with a DEV label. All app HTML pages link to this manifest. pwa.js offers native installation where the browser supplies a prompt and manual Android/iOS/desktop guidance otherwise.
+manifest.webmanifest identifies the development site root as VALE Connect Development (VALE Dev), launches in standalone mode and uses icons derived from the existing brand artwork with a DEV label. All app HTML pages link to this manifest. pwa.js offers native installation where the browser supplies a prompt and manual Android/iOS/desktop guidance otherwise.
 
-sw.js registers only inside /vale-connect-dev/. Its versioned CacheStorage contains only offline.html and four static icons. App navigations use network with cache:no-store and fall back to the connection screen when unavailable. It never stores navigation/query responses, Supabase API data, authentication state, cards or contacts. Existing localStorage is unchanged; this is not an offline card editor. Public card navigation also needs the internet. External Supabase JS still requires online loading.
+pwa.js registers sw.js only on dev.valebrandworks.com and local test hosts. At the former /vale-connect-dev/ path, sw.js removes itself and its own caches, and pwa.js does not register it. Its versioned CacheStorage contains only offline.html and four static icons. App navigations use network with cache:no-store and fall back to the connection screen when unavailable. It never stores navigation/query responses, Supabase API data, authentication state, cards or contacts. Existing localStorage is unchanged; this is not an offline card editor. Public card navigation also needs the internet. External Supabase JS still requires online loading.
 
 Updates wait. The Update app button asks users to save edits before requesting activation; only that tab reloads after activation. Other tabs are not forcibly reloaded. Bump the sw.js cache version and changed script version query strings on future app releases so installed clients can discover updated code/assets. Activation removes only caches with the development PWA prefix, never another app's caches or user localStorage.
 

@@ -3,7 +3,7 @@
  'use strict';
  const local=typeof module!=='undefined'&&module.exports?require('./connections-core.js'):root.ValeConnections;
  const lists=typeof module!=='undefined'&&module.exports?require('./account-lists.js'):root.ValeAccountLists;
- const fields={cname:'full_name',cbusiness:'business_name',cemail:'email',cphone:'phone',cjobTitle:'job_title',cwebsite:'website',csocials:'social_links',cnotes:'notes',ccategory:'category',cnext:'next_step',cdate:'follow_up_on'};
+ const fields={cname:'full_name',cbusiness:'business_name',cemail:'email',cphone:'phone',cjobTitle:'job_title',cwebsite:'website',csocials:'social_links',cnotes:'notes',ccategory:'category',cnext:'next_step',cdate:'follow_up_on',cmetOn:'met_on',cmetWhere:'met_where',cmetHow:'met_how',cintroducedBy:'introduced_by'};
  const categories=['Prospect','Customer','Supplier','Partner','Personal','Other'],steps=['Follow up','Send a quote','Schedule a meeting','Stay in touch','Completed'];
  const str=v=>typeof v==='string'?v:'';
  function toLocal(row){
@@ -12,9 +12,9 @@
  function payload(contact){
   if(!str(contact.cname).trim())throw Error('Enter a connection name.');
   const row=Object.fromEntries(Object.entries(fields).map(([k,c])=>[c,str(contact[k])]));
-  row.full_name=row.full_name.trim();row.category=categories.includes(row.category)?row.category:'Other';row.next_step=steps.includes(row.next_step)?row.next_step:'Follow up';row.follow_up_on=row.follow_up_on||null;
+  row.full_name=row.full_name.trim();row.category=categories.includes(row.category)?row.category:'Other';row.next_step=steps.includes(row.next_step)?row.next_step:'Follow up';row.follow_up_on=row.follow_up_on||null;row.met_on=row.met_on||null;
   row.history=Array.isArray(contact.history)?structuredClone(contact.history):[];
-  row.website=local.safeURL(row.website);row.updated_at=new Date().toISOString();return row;
+  row.website=local.website(row.website);row.updated_at=new Date().toISOString();return row;
  }
  function importContact(contact){
   if(!str(contact.cname).trim())throw Error('A selected browser connection has no valid name.');
@@ -35,6 +35,36 @@
   const {data,error}=await client.from('connections').update({...payload(contact),revision:Number(current.revision)+1}).eq('id',current.id).eq('owner_id',owner).eq('revision',current.revision).select('*').maybeSingle();
   if(error)throw error;return data;
  }
- const api={fields,categories,steps,toLocal,payload,importContact,list,duplicate,create,update};
+ // Overview totals: a browser contact already imported to the cloud counts once.
+ function overview(browser,cloud,today){
+  const imported=new Set(cloud.map(row=>row.source_identity).filter(Boolean));
+  const items=[...cloud.filter(row=>!row.archived_at).map(row=>({next:row.next_step,date:row.follow_up_on||''})),...browser.filter(c=>!imported.has(c.source_identity||'local:'+c.id)).map(c=>({next:c.cnext,date:c.cdate||''}))];
+  const open=items.filter(item=>item.next!=='Completed');
+  return {count:items.length,follow:open.length,overdue:open.filter(item=>item.date&&item.date<today).length};
+ }
+ async function setArchived(client,owner,current,archived){
+  const {data,error}=await client.from('connections').update({archived_at:archived?new Date().toISOString():null,revision:Number(current.revision)+1}).eq('id',current.id).eq('owner_id',owner).eq('revision',current.revision).select('*').maybeSingle();
+  if(error)throw error;return data;
+ }
+ async function remove(client,owner,current){
+  const {data,error}=await client.from('connections').delete().eq('id',current.id).eq('owner_id',owner).eq('revision',current.revision).select('id').maybeSingle();
+  if(error)throw error;return data;
+ }
+ // Search looks across details, notes and dated history. "due" includes overdue and today.
+ // Basic search (advanced false) looks at names only and ignores filters.
+ function matches(row,{query='',category='',followUp='',today='',advanced=true}={}){
+  if(advanced&&category&&row.category!==category)return false;
+  if(advanced&&followUp){
+   const date=row.follow_up_on||'',open=row.next_step!=='Completed';
+   if(!date||!open||(followUp==='overdue'?date>=today:date>today))return false;
+  }
+  const words=String(query).trim().toLocaleLowerCase('en').split(/\s+/).filter(Boolean);
+  if(!words.length)return true;
+  const history=Array.isArray(row.history)?row.history.map(entry=>entry?.text||'').join(' '):'';
+  if(!advanced)return words.every(word=>str(row.full_name).toLocaleLowerCase('en').includes(word));
+  const haystack=[row.full_name,row.business_name,row.email,row.phone,row.job_title,row.notes,row.category,row.met_where,row.met_how,row.introduced_by,history].map(str).join(' ').toLocaleLowerCase('en');
+  return words.every(word=>haystack.includes(word));
+ }
+ const api={fields,categories,steps,toLocal,payload,importContact,list,duplicate,create,update,overview,setArchived,remove,matches};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeCloudConnections=api;
 })(typeof window!=='undefined'?window:globalThis);

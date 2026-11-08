@@ -1,6 +1,6 @@
 # Development PWA rollback
 
-Target only valebrandworks/vale-connect-dev and its /vale-connect-dev/sw.js. No production, database, card or browser localStorage deletion.
+Build 9 retires the worker at the former /vale-connect-dev/ path automatically. This procedure applies to retiring a worker at the current development address. Target only valebrandworks/vale-connect-dev and its sw.js. No production, database, card or browser localStorage deletion.
 
 If an installed PWA release must be retired, first deploy a retirement worker at the same sw.js URL rather than just removing the registration script. Keep installable metadata/icons available until retirement is verified. This worker deliberately activates but does not navigate or reload open clients:
 

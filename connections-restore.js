@@ -3,7 +3,7 @@
  'use strict';
  const core=typeof module!=='undefined'&&module.exports?require('./cloud-connections-core.js'):root.ValeCloudConnections;
  const MAX_BYTES=10*1024*1024,MAX_RECORDS=5000,uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
- const limits={full_name:90,business_name:90,email:120,phone:40,job_title:80,website:200,social_links:3000,category:40,next_step:40,notes:10000,source_identity:4096,source_url:8192};
+ const limits={full_name:90,business_name:90,email:120,phone:40,job_title:80,website:300,social_links:3000,category:40,next_step:40,notes:10000,met_where:200,met_how:200,introduced_by:120,source_identity:4096,source_url:8192};
  function parse(text){
   if(typeof text!=='string'||new TextEncoder().encode(text).length>MAX_BYTES)throw Error('Choose a JSON backup no larger than 10 MB.');
   let data;try{data=JSON.parse(text.replace(/^\ufeff/,''))}catch{throw Error('This file is not valid JSON. Choose a VALE cloud JSON backup.');}
@@ -16,7 +16,7 @@
    for(const [k,max]of Object.entries(limits)){const value=row[k];if(value!==null&&value!==undefined&&typeof value!=='string')fail();clean[k]=value||'';if(clean[k].length>max||clean[k].includes('\u0000'))fail();}
    if(!clean.full_name.trim()||!core.categories.includes(clean.category)||!core.steps.includes(clean.next_step))fail();
    for(const key of ['website','source_url'])if(clean[key]){try{if(!['http:','https:'].includes(new URL(clean[key]).protocol))fail();}catch{fail();}}
-   const date=row.follow_up_on;if(date!==null&&date!==undefined&&date!==''){if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)fail();}clean.follow_up_on=date||null;
+   for(const key of ['follow_up_on','met_on']){const date=row[key];if(date!==null&&date!==undefined&&date!==''){if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)fail();}clean[key]=date||null;}
    if(!Array.isArray(row.history)||row.history.length>1000)fail();
    clean.history=row.history.map(entry=>{if(!entry||typeof entry!=='object'||typeof entry.date!=='string'||typeof entry.text!=='string'||entry.date.length>80||entry.text.length>1000||entry.date.includes('\u0000')||entry.text.includes('\u0000'))fail();return {date:entry.date,text:entry.text}});
    // Preserve only approved fields. Owner IDs, revision and auth metadata are never restored.
