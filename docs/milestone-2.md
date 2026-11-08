@@ -6,7 +6,7 @@ Development only. Nothing here has been deployed or applied to production.
 
 **Public cards**
 - `get_public_card` returns one published card by its link name, with public fields only. `p.html` uses it.
-- `20261104100100_restrict_public_card_reads.sql` then removes direct table reads for visitors and limits card reads to their owners. Apply it only after a page using the lookup is live on that environment.
+- `20261108203429_restrict_public_card_reads.sql` then removes direct table reads for visitors and limits card reads to their owners. Apply it only after a page using the lookup is live on that environment.
 - New cards start as drafts, link names can't change, and a deleted card's link name is never reused.
 - Field sizes are enforced in the database, and revisions and timestamps are set by the server for app clients.
 
@@ -26,7 +26,7 @@ Development only. Nothing here has been deployed or applied to production.
 2. Apply `20261104074759_harden_cards_and_add_membership_limits.sql`. It's additive, so the current app keeps working.
 3. Add the new address to the project's Auth redirect URLs.
 4. Deploy the app, and confirm that public card links work.
-5. Apply `20261104100100_restrict_public_card_reads.sql`, then confirm again.
+5. Apply `20261108203429_restrict_public_card_reads.sql`, then confirm again.
 
 ## Status
 
