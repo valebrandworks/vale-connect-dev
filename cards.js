@@ -1,129 +1,108 @@
-/* Separate multi-card manager; the original My Card/profile sync stays intact. */
+/* The Card tab. Cards live in the account (public_cards); the database enforces each plan's card limit. */
 (()=>{
  'use strict';
- const $=id=>document.getElementById(id), tools=window.ValeCardTools;
- if(!$('cards-manager')||!tools)return;
- let client=null,user=null,cards=[],selected=null,dirty=false,busy=false,epoch=0;
- const message=text=>{$('cards-status').textContent=text};
+ const $=id=>document.getElementById(id),tools=window.ValeCardTools,view=window.ValeCardView;
+ if(!$('card-editor')||!tools||!view)return;
+ const ask=(text,options)=>window.ValeAsk?window.ValeAsk(text,options):Promise.resolve(confirm(text));
  const fields=Object.keys(tools.fields);
- const editor=()=>Object.fromEntries(fields.map(k=>[k,$('multi-'+k).value.trim()]));
- function controls(){
-  $('cards-login-note').hidden=!!user;
-  $('cards-workspace').hidden=!user;
-  for(const id of ['cards-new','cards-refresh','cards-save','cards-publish'])$(id).disabled=busy||!user;
-  $('cards-publish').disabled=busy||!user||!selected;
-  $('cards-delete').disabled=busy||!user||!selected;
-  $('cards-publish').textContent=selected?.published?'Unpublish card':'Publish card';
-  $('cards-state').textContent=selected?(selected.published?'Published — these card fields are public.':'Private draft — visible only to your account.'):'New private draft';
-  $('multi-slug').disabled=!!selected||busy;
-  for(const el of $('cards-form').querySelectorAll('input,textarea'))el.disabled=busy||!user||(el.id==='multi-slug'&&!!selected);
- }
- function clearForm(){
-  selected=null;dirty=false;
-  fields.forEach(k=>{$('multi-'+k).value=''});
-  $('multi-label').value='';$('multi-slug').value='';
-  renderShare();controls();
- }
- function fill(row){
-  selected={...row};dirty=false;
-  const values=tools.toEditor(row);
-  fields.forEach(k=>{$('multi-'+k).value=values[k]});
-  $('multi-label').value=row.card_label;$('multi-slug').value=row.slug;
-  renderList();renderShare();controls();
- }
- function discard(){return !dirty||confirm('Discard the unsaved edits in this card editor? Saved cards will not be deleted.')}
- function renderList(){
-  const list=$('cards-list');list.replaceChildren();
-  if(!cards.length){const p=document.createElement('p');p.textContent='No saved cards yet. Create a private draft to begin.';list.append(p)}
-  for(const row of cards){
-   const button=document.createElement('button');button.type='button';button.className='btn alt';
-   button.textContent=row.card_label+' · '+(row.published?'Published':'Private draft');
-   button.setAttribute('aria-pressed',String(row.id===selected?.id));button.disabled=busy;
-   button.onclick=()=>{if(!busy&&discard())fill(row)};list.append(button);
+ let client=null,user=null,cards=[],selected=null,editing=null,dirty=false,busy=false,epoch=0,loaded=false;
+ const message=text=>{$('cards-status').textContent=text};
+ const maxCards=()=>{const u=window.ValeUsage?.usage?.();return u&&u.max_cards!==null&&u.max_cards!==undefined?Number(u.max_cards):null};
+ const multi=()=>cards.length>1||(maxCards()!==null?maxCards()>1:false);
+ function slugFrom(name){return (String(name).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40)||'card')+'-'+crypto.randomUUID().slice(0,6)}
+
+ function announce(){window.dispatchEvent(new CustomEvent('vale-card-selected',{detail:{card:selected?{...selected}:null,signedIn:!!user,cards:cards.length,loaded}}))}
+ function render(){
+  const signedOut=!user,empty=!!user&&loaded&&!cards.length,isEditing=editing!==null;
+  $('card-signed-out').hidden=!signedOut;
+  $('card-loading').hidden=signedOut||loaded;
+  $('card-empty').hidden=!empty||isEditing;
+  $('card-home').hidden=!selected||isEditing;
+  $('card-editor').hidden=!isEditing;
+  if(selected&&!isEditing){
+   $('card-preview').replaceChildren(view.render(tools.toEditor(selected)));
+   const pill=$('card-visibility');pill.className='pill'+(selected.published?' public':'');pill.textContent=selected.published?'Public':'Private · only you can see it';
+   $('card-link-name').textContent=multi()?selected.card_label:'';
   }
+  const switcher=$('card-switcher');switcher.replaceChildren();switcher.hidden=!multi()||isEditing||!cards.length;
+  for(const row of cards){const b=document.createElement('button');b.type='button';b.className='btn'+(row.id===selected?.id?' primary':'');b.textContent=row.card_label;b.disabled=busy;b.setAttribute('aria-pressed',String(row.id===selected?.id));b.onclick=()=>{selected=row;render();announce()};switcher.append(b)}
+  const room=maxCards()!==null&&cards.length<maxCards();
+  $('cards-new').hidden=!multi()||!room||isEditing;
+  for(const el of $('card-editor').querySelectorAll('input,textarea,button'))el.disabled=busy;
  }
- function renderShare(){
-  const host=$('cards-qr');host.replaceChildren();
-  const link=$('cards-public-link');link.hidden=true;link.removeAttribute('href');
-  $('cards-qr-download').disabled=true;
-  if(!selected?.published){$('cards-share-note').textContent='Save a draft, review its public fields, then publish to enable its public link and QR.';return}
-  const url=new URL('p.html',location.href);url.searchParams.set('u',selected.slug);
-  link.href=url.href;link.textContent='Open published card';link.hidden=false;
-  $('cards-share-note').textContent='This link shows the last saved published card. Unsaved edits are not shared.';
-  try{
-   if(typeof window.ValeQR!=='function')throw Error('QR generator unavailable.');
-   const qr=new window.ValeQR(-1,1);qr.addData(url.href);qr.make();
-   const n=qr.getModuleCount(),scale=6,canvas=document.createElement('canvas');canvas.width=canvas.height=(n+8)*scale;
-   const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#000';
-   for(let y=0;y<n;y++)for(let x=0;x<n;x++)if(qr.isDark(y,x))ctx.fillRect((x+4)*scale,(y+4)*scale,scale,scale);
-   canvas.setAttribute('aria-label','QR code for published card');host.append(canvas);$('cards-qr-download').disabled=false;
-  }catch(error){host.textContent=error.message||'QR generator unavailable.'}
+ function openEditor(row,values){
+  editing=row?row.id:'new';dirty=!!values;
+  const v=values||(row?tools.toEditor(row):Object.fromEntries(fields.map(k=>[k,''])));
+  fields.forEach(k=>{$('multi-'+k).value=v[k]||''});
+  $('multi-label').value=row?row.card_label:(cards.length?'':'My card');
+  $('card-label-field').hidden=!multi();
+  $('multi-slug').value=row?row.slug:'';$('multi-slug').readOnly=!!row;
+  $('card-slug-hint').textContent=row?'Your card’s link name is fixed so printed QR codes keep working.':'Lowercase letters, numbers and hyphens. It can’t be changed later, so printed QR codes keep working.';
+  $('multi-published').checked=row?!!row.published:true;
+  $('card-delete-section').hidden=!row;$('card-delete-section').open=false;$('card-delete-understand').checked=false;
+  $('card-editor-title').textContent=row?'Edit card':'Create your card';
+  message(values?'Review these details, then save.':'');
+  render();window.ValeApp?.tab('card');$('multi-fullName').focus?.();
  }
+ async function closeEditor(){if(dirty&&!await ask('Discard your unsaved card changes?',{confirmLabel:'Discard'}))return;editing=null;dirty=false;message('');render()}
  async function listCards(){
-  const requestEpoch=epoch,owner=user.id;
-  const data=await window.ValeAccountLists.read(client,'public_cards',owner,()=>requestEpoch===epoch&&owner===user?.id);
-  if(requestEpoch!==epoch||owner!==user?.id)return false;
-  cards=data.sort((a,b)=>a.card_label.localeCompare(b.card_label)||a.id.localeCompare(b.id));renderList();window.ValeUsage?.refresh();return true;
+  const e=epoch,owner=user.id;
+  const data=await window.ValeAccountLists.read(client,'public_cards',owner,()=>e===epoch&&owner===user?.id);
+  if(e!==epoch||owner!==user?.id)return false;
+  cards=data.sort((a,b)=>String(a.updated_at).localeCompare(String(b.updated_at))||a.id.localeCompare(b.id));
+  selected=cards.find(c=>c.id===selected?.id)||cards[0]||null;loaded=true;
+  render();announce();window.ValeUsage?.refresh();return true;
  }
  async function run(work){
-  if(busy||!user)return;const requestEpoch=epoch;busy=true;controls();renderList();
-  try{await work(requestEpoch)}catch(error){if(requestEpoch===epoch)message(error.code==='23505'?'That public link name is already in use. Choose another name.':error.message||'Card request failed.')}
-  finally{if(requestEpoch===epoch){busy=false;controls();renderList()}}
+  if(busy||!user)return;const e=epoch;busy=true;render();
+  try{await work(e)}catch(error){if(e===epoch)message(error.code==='23505'?'That card link is already taken. Choose another.':(error.message||'Something went wrong.')+' Your changes are still in the form.')}
+  finally{if(e===epoch){busy=false;render()}}
  }
- function conflict(){message('This card changed in another session. Your edits are still in the form. Copy them before refreshing the card list; nothing was overwritten.')}
- $('cards-new').onclick=()=>{if(discard()){clearForm();renderList();message('New private draft. Your original My Card is unchanged.')}};
- $('cards-refresh').onclick=()=>{if(!discard())return;void run(async e=>{if(await listCards()&&e===epoch){const row=cards.find(r=>r.id===selected?.id);if(row)fill(row);else clearForm();message('Card list refreshed.')}})};
- $('cards-form').addEventListener('input',()=>{dirty=true});
- $('multi-label').addEventListener('input',()=>{
-  if(selected)return;
-  const label=$('multi-label').value.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,45)||'card';
-  $('multi-slug').value=label+'-'+crypto.randomUUID().slice(0,8);
- });
- $('cards-form').onsubmit=e=>{
-  e.preventDefault();if(!user||busy)return;
-  const values=editor(),label=$('multi-label').value.trim(),slug=$('multi-slug').value.trim();
+ $('card-editor').addEventListener('input',()=>{dirty=true});
+ $('multi-fullName').addEventListener('input',()=>{if(editing==='new'&&!$('multi-slug').dataset.touched)$('multi-slug').value=slugFrom($('multi-fullName').value)});
+ $('multi-slug').addEventListener('input',()=>{$('multi-slug').dataset.touched='1'});
+ $('card-create').onclick=()=>openEditor(null);
+ $('cards-new').onclick=()=>openEditor(null);
+ $('card-edit').onclick=()=>selected&&openEditor(selected);
+ $('card-cancel').onclick=()=>void closeEditor();
+ $('card-editor').onsubmit=event=>{
+  event.preventDefault();if(!user||busy)return;
+  const values=Object.fromEntries(fields.map(k=>[k,$('multi-'+k).value.trim()]));
+  const row=editing==='new'?null:cards.find(c=>c.id===editing);
+  if(editing!=='new'&&!row){message('This card is no longer in your account. Your changes are still in the form.');return}
+  const label=$('multi-label').value.trim()||row?.card_label||'My card',slug=row?row.slug:($('multi-slug').value.trim()||slugFrom(values.fullName));
+  const site=values.website;if(site&&!view.web(site)){message('Enter a website such as example.com.');return}
   const invalid=tools.validate(label,slug,values);if(invalid){message(invalid);return}
-  if(selected?.published&&!confirm('This card is published. Save these edits to its public profile?'))return;
-  void run(async requestEpoch=>{
-   const payload={...tools.toRow(values),card_label:label,updated_at:new Date().toISOString()};
-   let query;
-   if(selected)query=client.from('public_cards').update({...payload,revision:Number(selected.revision)+1}).eq('id',selected.id).eq('owner_id',user.id).eq('revision',selected.revision).select('*').maybeSingle();
-   else query=client.from('public_cards').insert({...payload,owner_id:user.id,slug,published:false}).select('*').single();
-   const {data,error}=await query;if(requestEpoch!==epoch)return;if(error)throw error;if(!data){conflict();return}
-   fill(data);message(data.published?'Published card updated.':'Private draft saved.');await listCards();
-  });
- };
- $('cards-publish').onclick=()=>{
-  if(!selected||busy)return;
-  if(dirty){message('Save your edits before changing publication status.');return}
-  const publish=!selected.published;
-  if(publish&&!confirm('Publish this card? Its name, company, contact details, introduction and links will be readable by anyone with its link.'))return;
-  void run(async requestEpoch=>{
-   const {data,error}=await client.from('public_cards').update({published:publish,revision:Number(selected.revision)+1,updated_at:new Date().toISOString()}).eq('id',selected.id).eq('owner_id',user.id).eq('revision',selected.revision).select('*').maybeSingle();
-   if(requestEpoch!==epoch)return;if(error)throw error;if(!data){conflict();return}
-   fill(data);message(publish?'Card published. Public link and QR are ready.':'Card unpublished. The public link no longer displays it.');await listCards();
+  const published=$('multi-published').checked;
+  void run(async e=>{
+   const payload={...tools.toRow(values),card_label:label,published,updated_at:new Date().toISOString()};
+   const query=row
+    ?client.from('public_cards').update({...payload,revision:Number(row.revision)+1}).eq('id',row.id).eq('owner_id',user.id).eq('revision',row.revision).select('*').maybeSingle()
+    :client.from('public_cards').insert({...payload,owner_id:user.id,slug}).select('*').single();
+   const {data,error}=await query;if(e!==epoch)return;if(error)throw error;
+   if(!data){message('This card was changed on another device. Nothing was overwritten, and your changes are still in the form.');return}
+   selected=data;editing=null;dirty=false;$('multi-slug').dataset.touched='';
+   await listCards();if(e===epoch){message(published?'Saved. Your card is public.':'Saved. Your card is private.');window.dispatchEvent(new Event('vale-cards-changed'))}
   });
  };
  $('cards-delete').onclick=()=>{
-  if(!selected||busy)return;
-  const consequence=selected.published?'This card is published: its public link and QR codes will stop working permanently.':'This private draft will be removed.';
-  if(!confirm('Delete "'+selected.card_label+'"? '+consequence+' Its link name can\'t be used again. This can\'t be undone.'))return;
-  void run(async requestEpoch=>{
-   const {data,error}=await client.from('public_cards').delete().eq('id',selected.id).eq('owner_id',user.id).eq('revision',selected.revision).select('id').maybeSingle();
-   if(requestEpoch!==epoch)return;if(error)throw error;if(!data){conflict();return}
-   clearForm();await listCards();if(requestEpoch===epoch)message('Card deleted.');
+  const row=cards.find(c=>c.id===editing);if(!row||busy)return;
+  if(!$('card-delete-understand').checked){message('Tick the box to confirm. Nothing was deleted.');return}
+  void run(async e=>{
+   const {data,error}=await client.from('public_cards').delete().eq('id',row.id).eq('owner_id',user.id).eq('revision',row.revision).select('id').maybeSingle();
+   if(e!==epoch)return;if(error)throw error;if(!data){message('This card was changed on another device. Nothing was deleted.');return}
+   editing=null;dirty=false;selected=null;await listCards();if(e===epoch){message('Card deleted.');window.dispatchEvent(new Event('vale-cards-changed'))}
   });
  };
- $('cards-qr-download').onclick=()=>{
-  if(!selected?.published)return;const canvas=$('cards-qr').querySelector('canvas');if(!canvas)return;
-  const link=document.createElement('a');link.href=canvas.toDataURL('image/png');link.download=selected.slug+'-qr.png';link.click();
- };
+ function background(){if(user&&!busy&&editing===null&&!document.hidden&&navigator.onLine)void run(async()=>{await listCards()})}
+ window.addEventListener('focus',background);document.addEventListener('visibilitychange',()=>{if(!document.hidden)background()});
+ window.addEventListener('vale-usage-updated',()=>{if(editing===null)render();else $('card-label-field').hidden=!multi()});
  window.addEventListener('vale-account-ready',event=>{
-  const next=event.detail;
-  if(user?.id===next.user?.id&&client===next.client)return;
-  epoch++;client=next.client;user=next.user;cards=[];busy=false;clearForm();renderList();
-  message(user?'Loading your cards…':'Sign in through Cloud Account to manage your cards.');
-  if(user)void run(async e=>{if(await listCards()&&e===epoch)message('Choose a card, or create a new private draft. Your original My Card stays separate.')});
+  const next=event.detail;if(user?.id===next.user?.id&&client===next.client)return;
+  epoch++;client=next.client;user=next.user;cards=[];selected=null;editing=null;dirty=false;busy=false;loaded=false;message('');
+  fields.forEach(k=>{$('multi-'+k).value=''});render();announce();
+  if(user)void run(async()=>{await listCards()});
  });
- clearForm();renderList();message('Sign in through Cloud Account to manage your cards.');
+ window.ValeCards={edit:()=>{if(selected)openEditor(selected)},prefill:values=>openEditor(selected,values),list:()=>cards.map(c=>({...c})),current:()=>selected?{...selected}:null};
+ render();
 })();

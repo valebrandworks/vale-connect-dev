@@ -35,7 +35,7 @@ const lookup = (await db.query(`SELECT pg_get_function_result('public.get_public
 const missingFromLookup = ['id', ...Object.values(cardTools.fields)].filter(column => !new RegExp(`\\b${column}\\b`).test(lookup));
 report(!missingFromLookup.length, `public card lookup returns what the page needs${missingFromLookup.length ? ' (missing ' + missingFromLookup.join(', ') + ')' : ''}`);
 report(!/owner_id|card_label|revision|published|updated_at/.test(lookup), 'public card lookup returns no private fields');
-expectColumns('profiles', ['id', ...sql('cloud-auth.js').match(/COLUMNS='([^']+)'/)[1].split(','), 'created_at'], 'My Card sync');
+expectColumns('profiles', ['id', ...sql('import-local.js').match(/from\('profiles'\)\.select\('([^']+)'/)[1].split(','), 'created_at'], 'earlier profile import');
 expectColumns('connections', [...Object.keys(cloud.payload({ cname: 'Synthetic' })), 'id', 'owner_id', 'source_identity', 'source_url', 'revision'], 'cloud connections');
 expectColumns('connections', exporter.columns, 'cloud backup');
 await db.close();

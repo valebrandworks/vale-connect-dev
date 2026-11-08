@@ -1,4 +1,4 @@
-// Regression tests for three defects recorded in docs/phase-0-baseline.md.
+// Regression tests for defects recorded in docs/phase-0-baseline.md and the Free interface milestone.
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
 const root=path.resolve(process.argv[2]||path.join(__dirname,'..'));
 const local=require(path.join(root,'connections-core.js')),core=require(path.join(root,'cloud-connections-core.js')),restore=require(path.join(root,'connections-restore.js'));
@@ -14,32 +14,33 @@ check('website typed without https:// is kept, unsafe values never become links'
   ['','']]){assert.equal(save(typed),expected,typed)}
  for(const unsafe of ['javascript:alert(1)','javascript:1','JaVaScRiPt:alert(1)','data:text/html,x','data.example:text','mailto:a@example.com','a@example.com','ftp://example.com','file:///c:/x','not a website','localhost','example','.com','//example.com'])assert.equal(save(unsafe),'',unsafe);
  assert.equal(local.candidate({fullName:'Synthetic',website:'example.com'},{}).cwebsite,'https://example.com/');
- assert.match(viewer,/ValeConnections\.website\(data\.website\)/);
+ // Cards show websites typed without https://, and never turn unsafe values into links.
+ const view=require(path.join(root,'card-view.js'));
+ assert.equal(view.web('example.com'),'https://example.com/');assert.equal(view.web('http://example.com'),'http://example.com/');
+ for(const unsafe of ['javascript:alert(1)','data:text/html,x','mailto:a@example.com','file:///c:/x','localhost','not a website'])assert.equal(view.web(unsafe),null,unsafe);
+ assert.match(viewer,/ValeCardView\.render\(values\)/);
  const row={id:'11111111-1111-4111-8111-111111111111',full_name:'Synthetic',category:'Other',next_step:'Follow up',history:[],website:core.payload({cname:'x',cwebsite:'a'.repeat(190)+'.example.com/'}).website};
  assert.ok(row.website.length>200);
  assert.equal(restore.parse(JSON.stringify({format:'vale-connect-cloud-connections',version:1,environment:'development',count:1,connections:[row]})).count,1);
 });
 
-check('unreadable browser contacts are never replaced',()=>{
- const start=html.indexOf('function storedContacts()'),end=html.indexOf('function txt(v)');assert.ok(start>0&&end>start,'guard code not found in index.html');
- assert.ok(html.includes('contacts=storedContacts()||[]'));
- const run=initial=>{
-  const data=new Map(Object.entries(initial)),alerts=[];
-  const context={localStorage:{getItem:k=>data.has(k)?data.get(k):null,setItem:(k,v)=>data.set(k,v)},window:{ValeConnections:local},alert:m=>alerts.push(m),structuredClone,KEY:'card-key',CKEY:local.KEY,UNREADABLE_CONTACTS:'Saved browser connections could not be read.'};
-  vm.createContext(context);vm.runInContext(html.slice(start,end),context);return {context,data,alerts};
- };
- for(const raw of ['{corrupt','{}','[null]','["bad"]']){
-  const {context,data,alerts}=run({[local.KEY]:raw});
-  assert.equal(context.save(local.KEY,[{id:'new'}]),false,raw);assert.equal(data.get(local.KEY),raw);assert.equal(alerts.length,1);
-  assert.equal(context.save(local.KEY,[]),false,'delete-all must not replace unreadable data');assert.equal(data.get(local.KEY),raw);
-  assert.equal(context.save('card-key',{fullName:'Synthetic'}),true,'My Card saving is unaffected');
- }
- const good=run({[local.KEY]:JSON.stringify([{id:'a'}])});assert.equal(good.context.save(local.KEY,[{id:'a'},{id:'b'}]),true);assert.equal(JSON.parse(good.data.get(local.KEY)).length,2);
- const empty=run({});assert.equal(empty.context.save(local.KEY,[{id:'first'}]),true);assert.equal(empty.alerts.length,0);
+check('public cards show the website once, and well-known platforms as icons',()=>{
+ globalThis.ValePlatforms=require(path.join(root,'platform-icons.js'));const view=require(path.join(root,'card-view.js'));
+ const {website,socials}=view.links({website:'www.example.com',socials:'Website | https://example.com/\nhttps://www.example.com\nLinkedIn | https://www.linkedin.com/in/someone\nhttps://linkedin.com/in/someone/\ninstagram.com/someone\nPortfolio | https://portfolio.example.org\njavascript:alert(1)'});
+ assert.equal(website,'https://www.example.com/');
+ assert.deepEqual(socials.map(l=>[l.label,l.platform]),[['LinkedIn','linkedin'],['Instagram','instagram'],['Portfolio',null]],'the website and repeated links appear once; unsafe lines are dropped');
+ assert.equal(globalThis.ValePlatforms.platform('https://evil-linkedin.com.example/x'),null,'look-alike addresses get no platform icon');
+ assert.equal(globalThis.ValePlatforms.platform('https://m.facebook.com/x'),'facebook');
 });
 
-check('Overview totals include cloud connections without double counting imports',()=>{
- assert.match(html,/renderOverview/);assert.match(html,/vale-cloud-connections-loaded/);
+check('the app never writes to browser storage, so older browser data can’t be overwritten',()=>{
+ const loaded=[...html.matchAll(/<script src="([a-z0-9-]+\.js)/g)].map(m=>m[1]);
+ assert.ok(loaded.includes('import-local.js')&&!loaded.includes('connections-ui.js'));
+ for(const file of loaded){const source=fs.readFileSync(path.join(root,file),'utf8');assert.doesNotMatch(source,/localStorage\.setItem/,file)}
+ assert.doesNotMatch(html,/localStorage\.setItem/);
+});
+
+check('connection totals count cloud connections without double counting imports',()=>{
  const today='2026-11-03';
  const browser=[{id:'1',cnext:'Follow up',cdate:'2026-11-01'},{id:'2',cnext:'Completed',cdate:'2026-01-01'},{id:'3',cnext:'Follow up',cdate:''},{id:'4',source_identity:'card:x',cnext:'Stay in touch',cdate:'2026-12-01'}];
  assert.deepEqual({...core.overview(browser,[],today)},{count:4,follow:3,overdue:1});
@@ -49,4 +50,4 @@ check('Overview totals include cloud connections without double counting imports
 });
 
 if(failed){console.error(failed+' check(s) failed.');process.exitCode=1}
-else console.log('PASS: websites without https:// are kept and unsafe values rejected; unreadable browser contacts are never replaced; Overview includes cloud connections without double counting.');
+else console.log('PASS: websites without https:// are kept and unsafe values rejected; public cards show the website once with platform icons; the app never overwrites browser data; totals don’t double count imports.');

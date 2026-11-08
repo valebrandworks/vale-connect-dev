@@ -8,9 +8,9 @@ vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'pwa.js
 const settle=async()=>{for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r))};
 (async()=>{
  await settle();assert.equal(element('pwa-update').hidden,false);swEvents.controllerchange();assert.equal(reloads,0);
- element('pwa-update').onclick();assert.equal(posted,0);
- confirmed=true;context.navigator.onLine=false;element('pwa-update').onclick();assert.equal(posted,0);
- context.navigator.onLine=true;element('pwa-update').onclick();assert.equal(posted,1);assert.equal(reloads,0);swEvents.controllerchange();assert.equal(reloads,1);swEvents.controllerchange();assert.equal(reloads,1);
+ await element('pwa-update').onclick();assert.equal(posted,0);
+ confirmed=true;context.navigator.onLine=false;await element('pwa-update').onclick();assert.equal(posted,0);
+ context.navigator.onLine=true;await element('pwa-update').onclick();assert.equal(posted,1);assert.equal(reloads,0);swEvents.controllerchange();assert.equal(reloads,1);swEvents.controllerchange();assert.equal(reloads,1);
  await element('pwa-install').onclick();assert.equal(element('pwa-help').open,true);
  events.beforeinstallprompt({preventDefault(){},prompt:async()=>{prompts++},userChoice:Promise.resolve({outcome:'accepted'})});await element('pwa-install').onclick();assert.equal(prompts,1);
  events.appinstalled();assert.equal(element('pwa-install').hidden,true);

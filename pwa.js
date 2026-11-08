@@ -15,7 +15,7 @@
   install.hidden=shared||installed||isStandalone();
   if(isStandalone())status.textContent='App mode · VALE Connect Development';
  }
- function showUpdate(){if(registration?.waiting){update.hidden=false;status.textContent='An update is ready. Save edits before updating.'}}
+ function showUpdate(){if(registration?.waiting){update.hidden=false;if($('pwa-update-bar'))$('pwa-update-bar').hidden=false;status.textContent='An update is ready. Save edits before updating.'}}
  network();window.addEventListener('online',network);window.addEventListener('offline',network);
  window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();promptEvent=event;network()});
  window.addEventListener('appinstalled',()=>{promptEvent=null;installed=true;install.hidden=true;help.open=false;status.textContent='VALE Connect Development installed.'});
@@ -26,10 +26,10 @@
    catch{help.open=true;status.textContent='Use the installation steps below.'}
   }else{help.open=true;status.textContent='Use your browser’s install or Add to Home Screen option.'}
  };
- update.onclick=()=>{
+ update.onclick=async()=>{
   if(!registration?.waiting)return;
   if(!navigator.onLine){status.textContent='Reconnect before applying an update.';return}
-  if(!confirm('Save any card or note edits before updating. Reload VALE Connect now?'))return;
+  const ask=window.ValeAsk||(t=>Promise.resolve(confirm(t)));if(!await ask('Save any card or connection edits first. Reload VALE Connect now?',{confirmLabel:'Update now'}))return;
   reloadRequested=true;registration.waiting.postMessage({type:'ACTIVATE_UPDATE'});
  };
  if(!('serviceWorker' in navigator)){status.textContent='Installation options depend on this browser. Open the guide below.';return}
