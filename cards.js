@@ -6,6 +6,7 @@
  const ask=(text,options)=>window.ValeAsk?window.ValeAsk(text,options):Promise.resolve(confirm(text));
  const fields=Object.keys(tools.fields);
  let client=null,user=null,cards=[],selected=null,editing=null,dirty=false,busy=false,epoch=0,loaded=false;
+ const images=window.ValeCardImages,unfinished=new Set();
  const message=text=>{$('cards-status').textContent=text};
  const maxCards=()=>{const u=window.ValeUsage?.usage?.();return u&&u.max_cards!==null&&u.max_cards!==undefined?Number(u.max_cards):null};
  const multi=()=>cards.length>1||(maxCards()!==null?maxCards()>1:false);
@@ -53,7 +54,13 @@
   if(e!==epoch||owner!==user?.id)return false;
   cards=data.sort((a,b)=>String(a.updated_at).localeCompare(String(b.updated_at))||a.id.localeCompare(b.id));
   selected=cards.find(c=>c.id===selected?.id)||cards[0]||null;loaded=true;
-  render();announce();window.ValeUsage?.refresh();return true;
+  render();announce();window.ValeUsage?.refresh();
+  if(images){
+   // Finish any private card whose old image files couldn't be removed earlier, then tidy stray files.
+   for(const id of [...unfinished]){const row=cards.find(c=>c.id===id);if(!row||row.published){unfinished.delete(id);continue}const r=await images.finishPrivate(client,row);if(r.ok)unfinished.delete(id)}
+   if(e===epoch&&owner===user?.id)void images.sweep(client,cards);
+  }
+  return true;
  }
  async function run(work){
   if(busy||!user)return;const e=epoch;busy=true;render();
@@ -87,6 +94,20 @@
   const site=values.website;if(site&&!view.web(site)){message('Enter a website such as example.com.');return}
   const invalid=tools.validate(label,slug,values);if(invalid){message(invalid);return}
   const published=row?$('multi-published').checked:false;
+  // Making a published card private also renames its images, so links made while it was public stop working.
+  if(row&&row.published&&!published&&images){
+   void run(async e=>{
+    message('Making your card private…');
+    const result=await images.makePrivate(client,user.id,row,{...tools.toRow(values),card_label:label});
+    if(e!==epoch)return;
+    if(!result.changed){message(result.conflict?'This card was changed on another device. It\u2019s still public, and nothing was changed.':'Your card couldn\u2019t be made private, so it\u2019s still public and nothing was changed. Check your connection and try again.');return}
+    selected=result.card;editing=null;dirty=false;
+    if(!result.ok)unfinished.add(row.id);
+    await listCards();
+    if(e===epoch){message(unfinished.has(row.id)?'Your card is private, but older copies of its images couldn\u2019t be removed yet. VALE Connect will finish this the next time it loads your card. Saving again also retries.':'Your card is private. Any earlier links to its images stop working within about a minute.');window.dispatchEvent(new Event('vale-cards-changed'))}
+   });
+   return;
+  }
   void run(async e=>{
    const payload={...tools.toRow(values),card_label:label,published,updated_at:new Date().toISOString()};
    const query=row

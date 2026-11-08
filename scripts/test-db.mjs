@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -48,6 +48,16 @@ const draftsLine = "  IF NEW.published THEN RAISE EXCEPTION 'New cards start as 
 if (rulesStart < 0 || rulesEnd < 8 || !cardRules.slice(rulesStart, rulesEnd).includes(draftsLine)) throw new Error('Card rules function not found for the drafts-first check');
 const draftsOff = cardRules.slice(rulesStart, rulesEnd).replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION').replace(draftsLine, '');
 const brokenRules = [
+  ['images: bucket made public', IMAGES, "UPDATE storage.buckets SET public = true WHERE id = 'card-images'"],
+  ['images: anyone can read every image', IMAGES, "DROP POLICY card_images_published_read ON storage.objects; CREATE POLICY open_read ON storage.objects FOR SELECT TO anon, authenticated USING (bucket_id = 'card-images')"],
+  ['images: draft images treated as published', IMAGES, "CREATE OR REPLACE FUNCTION vale_private.card_image_is_published(object_name text) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT true'"],
+  ['images: upload into any card', IMAGES, "DROP POLICY card_images_owner_upload ON storage.objects; CREATE POLICY open_upload ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'card-images')"],
+  ['images: files can be overwritten or moved', IMAGES, "CREATE POLICY open_update ON storage.objects FOR UPDATE TO authenticated USING (bucket_id = 'card-images') WITH CHECK (bucket_id = 'card-images')"],
+  ['images: any account can delete images', IMAGES, "DROP POLICY card_images_owner_delete ON storage.objects; CREATE POLICY open_delete ON storage.objects FOR DELETE TO authenticated USING (bucket_id = 'card-images')"],
+  ['images: cards with images can be deleted', IMAGES, 'DROP TRIGGER public_cards_image_cleanup ON public.public_cards'],
+  ['images: account deletion ignores remaining images', IMAGES, "CREATE OR REPLACE FUNCTION vale_private.account_image_count(account_id uuid) RETURNS bigint LANGUAGE sql STABLE AS 'SELECT 0::bigint'"],
+  ['images: any appearance accepted', IMAGES, 'ALTER TABLE public.public_cards DROP CONSTRAINT public_cards_appearance_check'],
+  ['images: another card\'s image can be attached', IMAGES, 'ALTER TABLE public.public_cards DROP CONSTRAINT public_cards_photo_path_check'],
   ['cards: new cards can be published immediately', RULES, draftsOff],
   ['connections: RLS off', CONNECTIONS, 'ALTER TABLE public.connections DISABLE ROW LEVEL SECURITY'],
   ['connections: anonymous read granted', CONNECTIONS, 'GRANT SELECT ON public.connections TO anon'],
@@ -66,7 +76,7 @@ const brokenRules = [
   ['cards: RLS off', CARDS, 'ALTER TABLE public.public_cards DISABLE ROW LEVEL SECURITY'],
   ['cards: drafts readable by everyone', RULES, 'DROP POLICY public_cards_select_own ON public.public_cards; CREATE POLICY open_read ON public.public_cards FOR SELECT TO authenticated USING (true)'],
   ['cards: anonymous table read restored', RULES, 'GRANT SELECT ON public.public_cards TO anon'],
-  ['cards: lookup returns drafts', MULTI, "CREATE OR REPLACE FUNCTION public.get_public_card(card_slug text) RETURNS TABLE (id uuid, display_name text, job_title text, business_name text, introduction text, public_email text, public_phone text, website text, social_links text) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT c.id, c.display_name, c.job_title, c.business_name, c.introduction, c.public_email, c.public_phone, c.website, c.social_links FROM public.public_cards c WHERE c.slug = card_slug'"],
+  ['cards: lookup returns drafts', MULTI, "CREATE OR REPLACE FUNCTION public.get_public_card(card_slug text) RETURNS TABLE (id uuid, display_name text, job_title text, business_name text, introduction text, public_email text, public_phone text, website text, social_links text, appearance text, photo_path text, logo_path text) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT c.id, c.display_name, c.job_title, c.business_name, c.introduction, c.public_email, c.public_phone, c.website, c.social_links, c.appearance, c.photo_path, c.logo_path FROM public.public_cards c WHERE c.slug = card_slug'"],
   ['features: Free given dated history', FEATURES, "UPDATE public.membership_plans SET features = '{dated_history}' WHERE code = 'free'"],
   ['features: Free given meeting details', FEATURES, "UPDATE public.membership_plans SET features = '{meeting_details}' WHERE code = 'free'"],
   ['features: clients can change plans', FEATURES, 'GRANT UPDATE ON public.membership_plans TO authenticated; CREATE POLICY open_update ON public.membership_plans FOR UPDATE TO authenticated USING (true) WITH CHECK (true)'],

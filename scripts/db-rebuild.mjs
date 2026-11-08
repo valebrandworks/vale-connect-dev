@@ -14,7 +14,15 @@ const SUPABASE_STUB = `
  GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
  GRANT EXECUTE ON FUNCTION auth.uid(), auth.jwt() TO anon, authenticated, service_role;
  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON TABLES TO anon, authenticated, service_role;
- ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;`;
+ ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ CREATE SCHEMA storage;
+ CREATE TABLE storage.buckets(id text PRIMARY KEY, name text NOT NULL, public boolean DEFAULT false, file_size_limit bigint, allowed_mime_types text[]);
+ CREATE TABLE storage.objects(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), bucket_id text REFERENCES storage.buckets(id), name text NOT NULL, owner uuid, created_at timestamptz DEFAULT now(), UNIQUE (bucket_id, name));
+ ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+ CREATE FUNCTION storage.foldername(name text) RETURNS text[] LANGUAGE plpgsql IMMUTABLE AS $$ DECLARE _parts text[]; BEGIN SELECT string_to_array(name, '/') INTO _parts; RETURN _parts[1 : array_length(_parts, 1) - 1]; END $$;
+ GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role;
+ GRANT SELECT, INSERT, UPDATE, DELETE ON storage.objects TO anon, authenticated;
+ GRANT EXECUTE ON FUNCTION storage.foldername(text) TO anon, authenticated;`;
 
 export async function rebuild(repo) {
   const db = new PGlite();
