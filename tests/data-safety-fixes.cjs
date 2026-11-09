@@ -18,8 +18,9 @@ check('website typed without https:// is kept, unsafe values never become links'
  const view=require(path.join(root,'card-view.js'));
  assert.equal(view.web('example.com'),'https://example.com/');assert.equal(view.web('http://example.com'),'http://example.com/');
  for(const unsafe of ['javascript:alert(1)','data:text/html,x','mailto:a@example.com','file:///c:/x','localhost','not a website'])assert.equal(view.web(unsafe),null,unsafe);
- assert.match(viewer,/ValeCardView\.render\(values,\{preset:data\.appearance,photoUrl\}\)/);
- assert.match(viewer,/images\.objectUrl\(client,data\.photo_path\)/,'the public page loads the photo with the visitor\'s own permissions, never a public address');
+ assert.match(viewer,/ValeCardView\.render\(values,\{preset:data\.appearance,\.\.\.shown\}\)/);
+ assert.match(viewer,/\[\['photoUrl',data\.photo_path\],\['logoUrl',data\.logo_path\]\]/,'the public page shows the photo and the logo');
+ assert.match(viewer,/images\.objectUrl\(client,path\)/,'the public page loads images with the visitor\'s own permissions, never a public address');
  assert.doesNotMatch(viewer,/getPublicUrl|createSignedUrl/);
  // Appearance presets: only the four known names; anything else shows Charcoal.
  assert.deepEqual(view.PRESETS,['charcoal','ivory','midnight','slate']);

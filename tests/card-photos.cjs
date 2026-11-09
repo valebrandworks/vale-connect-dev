@@ -2,7 +2,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
 const root=process.argv[2]||path.resolve(__dirname,'..');
 const tools=require(path.join(path.resolve(root),'cards-core.js'));
-const CARD='11111111-1111-4111-8111-111111111111',OWNER='owner-a',P=n=>CARD+'/photo-'+String(n).padStart(16,'0')+'.webp';
+const CARD='11111111-1111-4111-8111-111111111111',OWNER='owner-a',P=n=>CARD+'/photo-'+String(n).padStart(16,'0')+'.webp',L=n=>CARD+'/logo-'+String(n).padStart(16,'0')+'.webp';
 class Element{
  constructor(id){this.id=id;this.value='';this.children=[];this.handlers={};this.hidden=false;this.disabled=false;this.checked=false;this.readOnly=false;this.open=false;this.attrs={};this.dataset={};this.textContent='';this.width=560;this.files=null}
  append(...n){this.children.push(...n)}replaceChildren(...n){this.children=n}setAttribute(k,v){this.attrs[k]=v}
@@ -11,7 +11,7 @@ class Element{
 }
 const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id)};
 let rows=[{id:CARD,owner_id:OWNER,card_label:'My card',slug:'ana-1',display_name:'Ana',published:true,revision:1,updated_at:'1',appearance:'charcoal',photo_path:P(0),logo_path:null}];
-let consent=true,n=0;const log=[],removed=[],uploads=[],privateCalls=[];
+let consent=true,n=0,gate=null;const log=[],removed=[],uploads=[],privateCalls=[];
 class Query{
  constructor(){this.verb='select';this.filters=[]}
  select(){return this}eq(k,v){this.filters.push([k,v]);return this}order(){return this}range(a,b){this.start=a;this.end=b;return this}
@@ -26,19 +26,20 @@ class Query{
 }
 let files=[P(0)];
 const images={
- upload:async(_c,card,kind,blob,ext)=>{const p=P(++n);uploads.push(p);files.push(p);return p},
+ upload:async(_c,card,kind,blob,ext)=>{if(gate)await gate;const p=(kind==='logo'?L:P)(++n);uploads.push(p);files.push(p);return p},
  remove:async(_c,paths)=>{removed.push(...paths);files=files.filter(f=>!paths.includes(f))},
  objectUrl:async(_c,p)=>'blob:'+p,listCard:async()=>files.map(p=>({path:p,created:0})),
  makePrivate:async(_c,owner,card,edits)=>{privateCalls.push({card:{...card},edits});const r=rows.find(x=>x.id===card.id);Object.assign(r,edits,{published:false,revision:r.revision+1});return {ok:true,changed:true,card:{...r}}},
  finishPrivate:async(_c,card)=>({ok:true,card}),sweep:async()=>0,contactPhoto:async()=>'',blobOf:async()=>null
 };
-const crop={MAX_ZOOM:4,check:()=>'',decode:async()=>({width:800,height:600,close(){}}),state:()=>({zoom:1}),pan:s=>s,zoomTo:s=>s,draw(){},encode:async()=>({blob:{size:1},ext:'webp'})};
-const view={PRESETS:['charcoal'],preset:v=>v||'charcoal',initials:()=>'A',web:s=>s,render:(data,o={})=>Object.assign(new Element('rendered'),{photoUrl:o.photoUrl})};
+let logoProblem='';const crop={MAX_ZOOM:4,checkLogo:()=>logoProblem,encodeLogo:async()=>({blob:{size:1},ext:'webp',width:512,height:128}),check:()=>'',decode:async()=>({width:800,height:600,close(){}}),state:()=>({zoom:1}),pan:s=>s,zoomTo:s=>s,draw(){},encode:async()=>({blob:{size:1},ext:'webp'})};
+const view={PRESETS:['charcoal'],preset:v=>v||'charcoal',initials:()=>'A',web:s=>s,render:(data,o={})=>Object.assign(new Element('rendered'),{photoUrl:o.photoUrl,logoUrl:o.logoUrl})};
 const handlers={};
 const context={window:{ValeAccountLists:require(path.join(path.resolve(root),'account-lists.js')),ValeCardTools:tools,ValeCardView:view,ValeCardImages:images,ValePhotoCrop:crop,ValeUsage:{usage:()=>({max_cards:1}),refresh(){}},ValeApp:{tab(){}},addEventListener:(k,fn)=>{handlers[k]=fn},dispatchEvent(){}},
  document:{getElementById:get,createElement:()=>new Element('made'),createTextNode:t=>({textContent:t}),querySelectorAll:()=>[],querySelector:()=>null,addEventListener(){},hidden:false},
  confirm:()=>consent,URL:{createObjectURL:()=>'blob:local',revokeObjectURL(){}},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},Event:class{constructor(t){this.type=t}},crypto:{randomUUID:()=>'abcdef12-3456'},navigator:{onLine:true}};
 context.window.window=context.window;vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'cards.js'),'utf8'),context);
+const window_prefill=()=>context.window.ValeCards.prefill({fullName:'Ana',jobTitle:'',company:'',phone:'',email:'',website:'',bio:'',socials:''});
 const settle=async()=>{for(let i=0;i<12;i++)await new Promise(r=>setImmediate(r))};
 const choose=async()=>{get('card-photo-input').files=[{size:1000,type:'image/jpeg'}];get('card-photo-input').fire('change');await settle();get('card-photo-use').onclick();await settle()};
 const save=async()=>{get('card-editor').onsubmit({preventDefault(){}});await settle()};
@@ -69,7 +70,33 @@ const row=()=>rows[0];
  // Deleting a card with a photo: detached and its files removed first, then the card is deleted.
  get('card-edit').onclick();await settle();get('card-delete-understand').checked=true;log.length=0;get('cards-delete').onclick();await settle();
  assert.deepEqual(log[0],{update:log[0].update});assert.equal(log[0].update.photo_path,null);assert.ok(removed.includes(P(5)));assert.equal(log.at(-1),'delete');assert.equal(rows.length,0);
+ // Logos: staged, saved, replaced and removed the same way, and shown on the card and in the editor.
+ rows=[{id:CARD,owner_id:OWNER,card_label:'My card',slug:'ana-1',display_name:'Ana',published:true,revision:1,updated_at:'1',appearance:'charcoal',photo_path:null,logo_path:L(90)}];files=[L(90)];removed.length=0;privateCalls.length=0;
+ handlers['vale-account-ready']({detail:{client:{from:()=>new Query()},user:{id:'someone'}}});handlers['vale-account-ready']({detail:{client:{from:()=>new Query()},user:{id:OWNER}}});await settle();
+ assert.equal(get('card-preview').children[0].logoUrl,'blob:'+L(90),'the saved logo shows on the card screen');
+ const chooseLogo=async()=>{get('card-logo-input').files=[{size:1000,type:'image/png'}];get('card-logo-input').fire('change');await settle()};
+ get('card-edit').onclick();await settle();assert.equal(get('card-logo-choose').hidden,false);
+ logoProblem='Choose a PNG, JPG or WebP logo.';await chooseLogo();assert.match(get('cards-status').textContent,/PNG, JPG or WebP/);logoProblem='';
+ const before=uploads.length;await chooseLogo();const staged=uploads.at(-1);assert.equal(uploads.length,before+1);assert.match(staged,/\/logo-/);
+ assert.equal(row().logo_path,L(90),'nothing saved until Save card');assert.equal(get('card-editor-preview').children[0].logoUrl,'blob:local');
+ await chooseLogo();assert.ok(removed.includes(staged),'a second choice replaces the first staged logo');
+ await save();assert.equal(row().logo_path,uploads.at(-1));assert.ok(removed.includes(L(90)),'old logo removed after saving');
+ get('card-edit').onclick();await settle();get('card-logo-remove').onclick();await settle();await save();assert.equal(row().logo_path,null);
+ // A new logo saved together with making the card private: the logo is saved first, then renamed with the card.
+ get('card-edit').onclick();await settle();await chooseLogo();get('multi-published').checked=false;await save();
+ assert.equal(privateCalls.length,1);assert.equal(privateCalls[0].card.logo_path,uploads.at(-1));assert.equal('logo_path' in privateCalls[0].edits,false);
+ // Saving while an image is still uploading says so, instead of silently doing nothing; nothing is saved early.
+ rows=[{id:CARD,owner_id:OWNER,card_label:'My card',slug:'ana-1',display_name:'Ana',published:true,revision:1,updated_at:'1',appearance:'charcoal',photo_path:null,logo_path:null}];
+ handlers['vale-account-ready']({detail:{client:{from:()=>new Query()},user:{id:'someone'}}});handlers['vale-account-ready']({detail:{client:{from:()=>new Query()},user:{id:OWNER}}});await settle();
+ get('card-edit').onclick();await settle();let release;gate=new Promise(r=>release=r);
+ get('card-photo-input').files=[{size:1000,type:'image/jpeg'}];get('card-photo-input').fire('change');await settle();get('card-photo-use').onclick();await settle();
+ await save();assert.match(get('cards-status').textContent,/still uploading/);assert.equal(row().photo_path,null,'nothing saved while uploading');
+ gate=null;release();await settle();assert.match(get('cards-status').textContent,/Photo ready/);
+ await save();assert.equal(row().photo_path,uploads.at(-1),'the next save attaches it');
+ // Re-opening the editor discards an unsaved upload from before.
+ get('card-edit').onclick();await settle();get('card-photo-input').fire('change');await settle();get('card-photo-use').onclick();await settle();const unsaved=uploads.at(-1);
+ assert.equal(row().photo_path!==unsaved,true);window_prefill();await settle();assert.ok(removed.includes(unsaved),'an unsaved upload is removed when the editor is re-opened');
  // New cards can't take a photo until saved.
- get('card-create').onclick();assert.equal(get('card-photo-choose').hidden,true);assert.match(get('card-photo-note').textContent,/Save your card first/);
- console.log('PASS: photo staged privately until Save card; replacing removes the earlier staged upload; cancel discards it; saving attaches the new photo and removes the old; conflicts keep the staged photo; removal; unpublishing with a new photo renames it too; card deletion removes images first; new cards save before adding a photo.');
+ get('card-create').onclick();assert.equal(get('card-photo-choose').hidden,true);assert.match(get('card-photo-note').textContent,/Save your card first/);assert.equal(get('card-logo-choose').hidden,true);assert.match(get('card-logo-note').textContent,/Save your card first/);
+ console.log('PASS: photo staged privately until Save card; replacing removes the earlier staged upload; cancel discards it; saving attaches the new photo and removes the old; conflicts keep the staged photo; removal; unpublishing with a new photo renames it too; card deletion removes images first; logos staged, saved, replaced, removed and renamed on unpublish the same way; saving during an upload says so; re-opening discards unsaved uploads; new cards save before adding a photo or logo.');
 })().catch(e=>{console.error(e);process.exitCode=1});

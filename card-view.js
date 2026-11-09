@@ -38,7 +38,7 @@
   const el=(tag,cls,value)=>{const e=doc.createElement(tag);if(cls)e.className=cls;if(value!==undefined)e.textContent=value;return e};
   const card=el('article','vcard');card.dataset.preset=preset(options.preset);
   card.append(el('div','mark','VALE CONNECT'));
-  if(options.logoUrl){const logo=el('img','logo');logo.src=options.logoUrl;logo.alt=text(data.company)?text(data.company)+' logo':'Logo';card.append(logo)}
+  if(options.logoUrl){const logo=el('img','logo');logo.src=options.logoUrl;logo.alt=text(data.company)?text(data.company)+' logo':'Logo';card.append(logo);card.classList?.add('has-logo')}
   const head=el('div','head');
   if(options.photoUrl){const photo=el('img','photo');photo.src=options.photoUrl;photo.alt='';head.append(photo)}
   else{const photo=el('div','photo',initials(data.fullName));photo.setAttribute('aria-hidden','true');head.append(photo)}
