@@ -19,6 +19,23 @@
 // Plain JavaScript with no dependencies, so the same code runs on Supabase (Deno) and in the Node tests. Everything
 // from outside (settings, fetch, logging) is passed in.
 
+/** @typedef {(name: string) => (string | undefined)} Env */
+/** @typedef {(input: string, init?: RequestInit) => Promise<Response>} Fetch */
+/** @typedef {(entry: Record<string, unknown>) => void} Log */
+/** @typedef {ReturnType<typeof readConfig>} Config */
+/**
+ * @typedef {object} ShareRequest
+ * @property {'visitor' | 'member'} mode
+ * @property {string} card
+ * @property {string} submissionId
+ * @property {string} version
+ * @property {string} token
+ * @property {string} note
+ * @property {Record<string, string>} [fields]
+ * @property {string} [cardId]
+ * @property {string[]} [memberFields]
+ */
+
 export const ALLOWED_ORIGINS = Object.freeze(['https://dev.valebrandworks.com']);
 export const TURNSTILE_HOSTNAMES = Object.freeze(['dev.valebrandworks.com']);
 export const TURNSTILE_ACTION = 'share-card';
@@ -27,8 +44,10 @@ export const MAX_BODY_BYTES = 12000;
 export const MIN_SALT_LENGTH = 32;
 export const TRUSTED_ADDRESS_HEADER = 'cf-connecting-ip';
 
+/** @type {Readonly<Record<string, number>>} */
 const VISITOR_FIELDS = Object.freeze({ full_name: 90, job_title: 80, business_name: 90, email: 120, phone: 40, website: 300 });
 const MEMBER_FIELDS = Object.freeze(['full_name', 'job_title', 'business_name', 'email', 'phone', 'website', 'social_links']);
+/** @type {Readonly<Record<string, string[]>>} */
 const TOP_LEVEL = Object.freeze({
   visitor: ['mode', 'card', 'submission_id', 'consent', 'consent_version', 'turnstile_token', 'note', 'fields'],
   member: ['mode', 'card', 'submission_id', 'consent', 'consent_version', 'turnstile_token', 'note', 'card_id', 'member_fields'],
@@ -38,6 +57,7 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 
 // What each answer means. The browser only ever learns one of these words, never why a share was a duplicate etc.
+/** @type {Readonly<Record<string, number>>} */
 const HTTP = Object.freeze({
   ok: 200, shared: 200, invalid: 400, sign_in_required: 401, verification_failed: 403, forbidden_origin: 403,
   unavailable: 404, method_not_allowed: 405, too_large: 413, rate_limited: 429, error: 502, not_configured: 503,
@@ -45,6 +65,7 @@ const HTTP = Object.freeze({
 });
 
 // Reads a Supabase key dictionary (SUPABASE_SECRET_KEYS / SUPABASE_PUBLISHABLE_KEYS) and returns its 'default' key.
+/** @param {string} raw @returns {string} */
 function defaultKey(raw) {
   try { const keys = JSON.parse(raw || 'null'); return keys && typeof keys.default === 'string' ? keys.default.trim() : ''; } catch { return ''; }
 }
@@ -52,11 +73,14 @@ function defaultKey(raw) {
 // Reads the settings. Anything missing or unusable makes the function refuse every share.
 // Keys, per Supabase's current guidance: the secret key (elevated) is used only to call record_share; the
 // publishable key (low privilege) is enough to check a member's sign-in with Supabase Auth.
+/** @param {Env} env */
 export function readConfig(env) {
+  /** @param {string} name */
   const get = name => { const v = env(name); return typeof v === 'string' ? v.trim() : ''; };
   const serverKey = defaultKey(get('SUPABASE_SECRET_KEYS')) || get('SUPABASE_SERVICE_ROLE_KEY');
   const publicKey = defaultKey(get('SUPABASE_PUBLISHABLE_KEYS')) || get('SUPABASE_ANON_KEY');
   const url = get('SUPABASE_URL').replace(/\/+$/, '');
+  /** @type {Record<string, boolean>} */
   const checks = {
     turnstile_secret: get('TURNSTILE_SECRET_KEY') !== '',
     hash_salt: get('SHARE_HASH_SALT').length >= MIN_SALT_LENGTH,
@@ -69,6 +93,7 @@ export function readConfig(env) {
 }
 
 // A strict IPv4 address, as four numbers.
+/** @param {string} text @returns {number[] | null} */
 function ipv4(text) {
   const parts = text.split('.');
   if (parts.length !== 4 || !parts.every(p => /^(0|[1-9][0-9]{0,2})$/.test(p) && Number(p) <= 255)) return null;
@@ -76,9 +101,12 @@ function ipv4(text) {
 }
 
 // A strict IPv6 address, as eight 16-bit groups (or an IPv4 address it carries). No zone IDs or brackets.
+/** @param {string} text @returns {number[] | null} */
 function ipv6(text) {
   if (!/^[0-9a-f:.]+$/i.test(text) || text.length > 45 || !text.includes(':')) return null;
-  let four = null, head = text;
+  /** @type {number[] | null} */
+  let four = null;
+  let head = text;
   if (text.includes('.')) {                                   // IPv4 in the last 32 bits, e.g. ::ffff:192.0.2.1
     const lastColon = text.lastIndexOf(':');
     four = ipv4(text.slice(lastColon + 1));
@@ -87,6 +115,7 @@ function ipv6(text) {
   }
   const halves = head.split('::');
   if (halves.length > 2) return null;
+  /** @param {string} s @returns {string[]} */
   const group = s => (s === '' ? [] : s.split(':'));
   const left = group(halves[0]), right = halves.length === 2 ? group(halves[1]) : [];
   if (![...left, ...right].every(g => /^[0-9a-f]{1,4}$/i.test(g))) return null;
@@ -99,6 +128,7 @@ function ipv6(text) {
 
 // The rate-limit key for an address: an IPv4 address itself, or the /64 network of an IPv6 address.
 // Returns null for anything that isn't exactly one valid address.
+/** @param {string | null | undefined} text @returns {string | null} */
 export function addressKey(text) {
   const value = (text || '').trim();
   if (!value || value.includes(',') || value.includes(' ')) return null;
@@ -111,10 +141,12 @@ export function addressKey(text) {
 }
 
 // The visitor's network, from the one trusted header only. Every other address header is ignored.
+/** @param {Headers} headers @returns {string | null} */
 export function networkKey(headers) {
   return addressKey(headers.get(TRUSTED_ADDRESS_HEADER));
 }
 
+/** @param {string} salt @param {string | null} key @returns {Promise<string | null>} */
 export async function hashAddress(salt, key) {
   if (!key) return null;
   const enc = new TextEncoder();
@@ -124,6 +156,7 @@ export async function hashAddress(salt, key) {
 }
 
 // Checks the request shape. Returns the cleaned request, or null. The database checks everything again.
+/** @param {any} body @returns {ShareRequest | null} */
 export function validateRequest(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   const mode = body.mode;
@@ -137,10 +170,12 @@ export function validateRequest(body) {
   if (typeof version !== 'string' || !/^[A-Za-z0-9._-]{1,40}$/.test(version)) return null;
   if (typeof token !== 'string' || token.length < 1 || token.length > 2048) return null;
   if (typeof note !== 'string' || note.length > 300) return null;
+  /** @type {ShareRequest} */
   const clean = { mode, card, submissionId: submissionId.toLowerCase(), version, token, note };
   if (mode === 'visitor') {
     const fields = body.fields;
     if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return null;
+    /** @type {Record<string, string>} */
     const out = {};
     for (const [key, value] of Object.entries(fields)) {
       if (!Object.hasOwn(VISITOR_FIELDS, key) || typeof value !== 'string' || value.length > VISITOR_FIELDS[key]) return null;
@@ -152,17 +187,23 @@ export function validateRequest(body) {
     const list = body.member_fields;
     if (typeof body.card_id !== 'string' || !UUID.test(body.card_id)) return null;
     if (!Array.isArray(list) || list.length < 1 || list.length > MEMBER_FIELDS.length) return null;
-    if (!list.every(f => typeof f === 'string' && MEMBER_FIELDS.includes(f)) || new Set(list).size !== list.length || !list.includes('full_name')) return null;
+    if (!list.every(/** @param {unknown} f */ f => typeof f === 'string' && MEMBER_FIELDS.includes(f)) || new Set(list).size !== list.length || !list.includes('full_name')) return null;
     clean.cardId = body.card_id.toLowerCase();
     clean.memberFields = list;
   }
   return clean;
 }
 
+/**
+ * @param {{ env: Env, fetch: Fetch, log?: Log, timeoutMs?: number }} options
+ * @returns {(req: Request) => Promise<Response>}
+ */
 export function createShareHandler({ env, fetch: fetchImpl, log = () => {}, timeoutMs = 8000 }) {
   const signal = () => AbortSignal.timeout(timeoutMs);
 
+  /** @param {string} result @param {string} origin @param {Record<string, unknown>} [extra] */
   const reply = (result, origin, extra = {}) => {
+    /** @type {Record<string, string>} */
     const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', Vary: 'Origin' };
     if (origin && ALLOWED_ORIGINS.includes(origin)) {
       headers['Access-Control-Allow-Origin'] = origin;
@@ -172,8 +213,10 @@ export function createShareHandler({ env, fetch: fetchImpl, log = () => {}, time
     }
     return new Response(JSON.stringify({ status: result, ...extra }), { status: HTTP[result] ?? 500, headers });
   };
+  /** @param {string} result @param {string} origin @param {string} mode */
   const finish = (result, origin, mode) => { log({ event: 'share', result, mode: mode || 'unknown' }); return reply(result, origin); };
 
+  /** @param {Config} config @param {string} token @param {string} submissionId @returns {Promise<string>} */
   async function verifyTurnstile(config, token, submissionId) {
     let res;
     try {
@@ -192,6 +235,7 @@ export function createShareHandler({ env, fetch: fetchImpl, log = () => {}, time
     return 'ok';
   }
 
+  /** @param {Config} config @param {string} jwt @returns {Promise<{ result: string, id?: string }>} */
   async function memberId(config, jwt) {
     let res;
     try {
@@ -205,7 +249,9 @@ export function createShareHandler({ env, fetch: fetchImpl, log = () => {}, time
     return { result: 'ok', id: user.id.toLowerCase() };
   }
 
+  /** @param {Config} config @param {Record<string, unknown>} params @returns {Promise<string>} */
   async function recordShare(config, params) {
+    /** @type {Record<string, string>} */
     const headers = { 'Content-Type': 'application/json', apikey: config.serverKey };
     // New secret keys aren't JWTs: Supabase requires them in the apikey header only (in Authorization they're rejected
     // as an invalid JWT). The legacy service_role key is a JWT and also goes in Authorization.
@@ -218,6 +264,7 @@ export function createShareHandler({ env, fetch: fetchImpl, log = () => {}, time
     return ['shared', 'invalid', 'rate_limited', 'unavailable'].includes(answer) ? answer : 'error';
   }
 
+  /** @param {Request} req */
   return async function handle(req) {
     const origin = req.headers.get('origin') || '';
     const config = readConfig(env);
@@ -259,7 +306,7 @@ export function createShareHandler({ env, fetch: fetchImpl, log = () => {}, time
     if (request.mode === 'member') {
       const member = await memberId(config, jwt);
       if (member.result !== 'ok') return finish(member.result, origin, request.mode);
-      sharerId = member.id;
+      sharerId = member.id ?? null;
     }
 
     const networkHash = await hashAddress(config.salt, network);

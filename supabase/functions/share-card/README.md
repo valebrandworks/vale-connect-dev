@@ -53,4 +53,12 @@ checks member sign-ins itself.
 ## Tests
 `tests/share-card-function.cjs` runs the handler against an in-memory copy of the database built from this
 repository, with stand-ins for Turnstile and Supabase Auth. Its sabotage checks remove one protection at a time and
-must notice each one.
+must notice each one. It passes under both Node (`npm test`) and Deno:
+
+```bash
+deno check --no-lock --no-config --check-js supabase/functions/share-card/index.ts
+deno lint --no-config supabase/functions/share-card/index.ts supabase/functions/share-card/handler.mjs
+deno run --no-lock --no-prompt --node-modules-dir=manual --allow-read --allow-env tests/share-card-function.cjs
+```
+
+`handler.mjs` carries JSDoc types, so the strict check (`--check-js`) covers it as well as `index.ts`.
