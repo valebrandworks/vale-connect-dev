@@ -85,6 +85,8 @@
  }
  function closeCropper(){if(cropping?.bitmap?.close)cropping.bitmap.close();cropping=null;if($('card-photo-cropper'))$('card-photo-cropper').hidden=true}
  function openEditor(row,values){
+  // Any unsaved upload from an earlier editing session is discarded before starting again.
+  const leftover=KINDS.map(k=>media[k].staged).filter(Boolean);if(leftover.length&&images&&client)images.remove(client,leftover).catch(()=>{});
   editing=row?row.id:'new';dirty=!!values;closeCropper();
   media={photo:blank(row?.photo_path),logo:blank(row?.logo_path)};
   const v=values||(row?tools.toEditor(row):Object.fromEntries(fields.map(k=>[k,''])));
@@ -217,7 +219,8 @@
  // After a saved photo change, the replaced file is removed. If that fails, the background tidy-up removes it later.
  async function dropReplaced(oldPath,newPath){if(oldPath&&oldPath!==newPath&&images){try{await images.remove(client,[oldPath])}catch{}}}
  $('card-editor').onsubmit=event=>{
-  event.preventDefault();if(!user||busy)return;
+  event.preventDefault();if(!user)return;
+  if(busy){message('Your image is still uploading. Choose Save card again in a moment.');return}
   if(cropping){message('Choose Use photo or Cancel first.');return}
   const values=Object.fromEntries(fields.map(k=>[k,$('multi-'+k).value.trim()]));
   const row=editing==='new'?null:cards.find(c=>c.id===editing);
