@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -54,6 +54,8 @@ if (shareStart < 0 || shareEnd < 8) throw new Error('record_share not found for 
 const recordShare = sharingSql.slice(shareStart, shareEnd).replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION');
 const withoutRule = (find, replace = '') => { if (!recordShare.includes(find)) throw new Error('Sharing rule not found: ' + find); return recordShare.replace(find, replace); };
 const brokenRules = [
+  ['indexes: a sharing link loses its index', SHARING_INDEXES, 'DROP INDEX public.notifications_connection_idx'],
+  ['indexes: a new unindexed link is added', SHARING_INDEXES, 'CREATE TABLE public.demo_link (id uuid PRIMARY KEY, card_id uuid REFERENCES public.public_cards(id) ON DELETE CASCADE)'],
   ['sharing: visitors can record shares directly', SHARING, 'GRANT EXECUTE ON FUNCTION public.record_share(text, uuid, boolean, text, jsonb, text[], uuid, uuid, text, text) TO anon'],
   ['sharing: any account can read every share', SHARING, 'DROP POLICY card_shares_select_own ON public.card_shares; CREATE POLICY open_read ON public.card_shares FOR SELECT TO authenticated USING (true)'],
   ['sharing: any account can read every notification', SHARING, 'DROP POLICY notifications_select_own ON public.notifications; CREATE POLICY open_read ON public.notifications FOR SELECT TO authenticated USING (true)'],
@@ -115,6 +117,30 @@ for (const [label, file, sabotage] of brokenRules) {
   report(caught, `detects broken rule: ${label}`);
   await broken.close();
 }
+
+// The sharing indexes: each is used for its lookup, and the rollback removes exactly them and can be re-applied.
+const SHARING_INDEX_SQL = 'supabase/migrations/20261109030000_add_sharing_indexes.sql', SHARING_INDEX_DOWN = 'supabase/rollback/20261109030000_add_sharing_indexes.down.sql';
+const SHARING_INDEX_NAMES = ['card_shares_sharer_card_idx', 'connections_share_idx', 'notifications_share_idx', 'notifications_connection_idx'];
+const snapshotOf = async database => JSON.parse((await database.query(sql('supabase/inspection/structure_snapshot.sql'))).rows[0].vale_structure_snapshot);
+const withIndexes = await rebuild(repo);
+await withIndexes.exec('SET enable_seqscan = off');
+for (const [table, column, index] of [['card_shares', 'sharer_card_id', 'card_shares_sharer_card_idx'], ['connections', 'share_id', 'connections_share_idx'], ['notifications', 'share_id', 'notifications_share_idx'], ['notifications', 'connection_id', 'notifications_connection_idx']]) {
+  const plan = (await withIndexes.query(`EXPLAIN SELECT 1 FROM public.${table} WHERE ${column} = gen_random_uuid()`)).rows.map(row => Object.values(row)[0]).join(' ');
+  report(plan.includes(index), `indexes: lookups on ${table}.${column} use ${index}`);
+}
+await withIndexes.exec('RESET enable_seqscan');
+const before = await snapshotOf(withIndexes);
+await withIndexes.exec(sql(SHARING_INDEX_DOWN));
+const afterDown = await snapshotOf(withIndexes);
+const strip = snap => JSON.stringify({ ...snap, indexes: snap.indexes.filter(i => !SHARING_INDEX_NAMES.includes(i.name)) });
+report(SHARING_INDEX_NAMES.every(name => !afterDown.indexes.some(i => i.name === name)), 'indexes rollback: removes all four indexes');
+report(strip(before) === JSON.stringify(afterDown), 'indexes rollback: changes nothing else');
+let flagged = false;
+try { await withIndexes.exec(sql(SHARING_INDEXES)); } catch { flagged = true; await withIndexes.exec('ROLLBACK'); }
+report(flagged, 'indexes rollback: the index test notices they are gone');
+await withIndexes.exec(sql(SHARING_INDEX_SQL));
+report(JSON.stringify(await snapshotOf(withIndexes)) === JSON.stringify(before), 'indexes: re-applying after rollback restores the same structure');
+await withIndexes.close();
 
 // The launch gate passes on the finished design and fails if a protection is missing.
 const gateRows = async database => (await database.query(sql('supabase/inspection/launch_gate.sql'))).rows;
