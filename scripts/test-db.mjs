@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -47,7 +47,25 @@ const rulesStart = cardRules.indexOf('CREATE FUNCTION public.enforce_card_rules(
 const draftsLine = "  IF NEW.published THEN RAISE EXCEPTION 'New cards start as private drafts. Save it first, then publish.'; END IF;\n";
 if (rulesStart < 0 || rulesEnd < 8 || !cardRules.slice(rulesStart, rulesEnd).includes(draftsLine)) throw new Error('Card rules function not found for the drafts-first check');
 const draftsOff = cardRules.slice(rulesStart, rulesEnd).replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION').replace(draftsLine, '');
+// record_share with one rule removed, to prove the sharing tests notice.
+const sharingSql = sql('supabase/migrations/20261109020000_add_reciprocal_sharing.sql').replace(/\r\n/g, '\n');
+const shareStart = sharingSql.indexOf('CREATE FUNCTION public.record_share('), shareEnd = sharingSql.indexOf('\nEND $$;', shareStart) + 8;
+if (shareStart < 0 || shareEnd < 8) throw new Error('record_share not found for the sharing checks');
+const recordShare = sharingSql.slice(shareStart, shareEnd).replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION');
+const withoutRule = (find, replace = '') => { if (!recordShare.includes(find)) throw new Error('Sharing rule not found: ' + find); return recordShare.replace(find, replace); };
 const brokenRules = [
+  ['sharing: visitors can record shares directly', SHARING, 'GRANT EXECUTE ON FUNCTION public.record_share(text, uuid, boolean, text, jsonb, text[], uuid, uuid, text, text) TO anon'],
+  ['sharing: any account can read every share', SHARING, 'DROP POLICY card_shares_select_own ON public.card_shares; CREATE POLICY open_read ON public.card_shares FOR SELECT TO authenticated USING (true)'],
+  ['sharing: any account can read every notification', SHARING, 'DROP POLICY notifications_select_own ON public.notifications; CREATE POLICY open_read ON public.notifications FOR SELECT TO authenticated USING (true)'],
+  ['sharing: accounts can mark connections shared or mutual', SHARING, 'DROP TRIGGER connections_sharing_fields ON public.connections'],
+  ['sharing: no rate limits', SHARING, 'DELETE FROM public.share_limits'],
+  ['sharing: saved without consent', SHARING, withoutRule('p_consented IS NOT TRUE OR ')],
+  ['sharing: members can share fields they did not tick', SHARING, withoutRule("'email' = ANY (p_member_fields) THEN nullif(btrim(sharer_card.public_email), '')", "true THEN nullif(btrim(sharer_card.public_email), '')").replace("'phone' = ANY (p_member_fields) THEN", 'true THEN')],
+  ['sharing: email duplicates not detected', SHARING, withoutRule('AND lower(btrim(c.email)) = v_email', 'AND false')],
+  ['sharing: mutual after one side only', SHARING, withoutRule('WHERE s.owner_id = p_sharer_user_id AND s.sharer_user_id = card.owner_id AND s.connection_id IS NOT NULL', 'WHERE s.owner_id = card.owner_id AND s.connection_id IS NOT NULL')],
+  ['sharing: owner limit ignored', SHARING, withoutRule("WHEN max_active IS NOT NULL AND active >= max_active THEN 'limit_reached'", "WHEN false THEN 'limit_reached'")],
+  ['sharing: a deleted member stays linked to shares', SHARING, 'ALTER TABLE public.card_shares DROP CONSTRAINT card_shares_sharer_user_id_fkey'],
+  ['sharing: duplicate history grows without limit', SHARING, "UPDATE public.share_retention SET value = 1000 WHERE name = 'duplicates_per_connection'"],
   ['images: bucket made public', IMAGES, "UPDATE storage.buckets SET public = true WHERE id = 'card-images'"],
   ['images: anyone can read every image', IMAGES, "DROP POLICY card_images_published_read ON storage.objects; CREATE POLICY open_read ON storage.objects FOR SELECT TO anon, authenticated USING (bucket_id = 'card-images')"],
   ['images: draft images treated as published', IMAGES, "CREATE OR REPLACE FUNCTION vale_private.card_image_is_published(object_name text) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT true'"],
@@ -76,7 +94,7 @@ const brokenRules = [
   ['cards: RLS off', CARDS, 'ALTER TABLE public.public_cards DISABLE ROW LEVEL SECURITY'],
   ['cards: drafts readable by everyone', RULES, 'DROP POLICY public_cards_select_own ON public.public_cards; CREATE POLICY open_read ON public.public_cards FOR SELECT TO authenticated USING (true)'],
   ['cards: anonymous table read restored', RULES, 'GRANT SELECT ON public.public_cards TO anon'],
-  ['cards: lookup returns drafts', MULTI, "CREATE OR REPLACE FUNCTION public.get_public_card(card_slug text) RETURNS TABLE (id uuid, display_name text, job_title text, business_name text, introduction text, public_email text, public_phone text, website text, social_links text, appearance text, photo_path text, logo_path text) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT c.id, c.display_name, c.job_title, c.business_name, c.introduction, c.public_email, c.public_phone, c.website, c.social_links, c.appearance, c.photo_path, c.logo_path FROM public.public_cards c WHERE c.slug = card_slug'"],
+  ['cards: lookup returns drafts', MULTI, "CREATE OR REPLACE FUNCTION public.get_public_card(card_slug text) RETURNS TABLE (id uuid, display_name text, job_title text, business_name text, introduction text, public_email text, public_phone text, website text, social_links text, appearance text, photo_path text, logo_path text, accept_shares boolean) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT c.id, c.display_name, c.job_title, c.business_name, c.introduction, c.public_email, c.public_phone, c.website, c.social_links, c.appearance, c.photo_path, c.logo_path, c.accept_shares FROM public.public_cards c WHERE c.slug = card_slug'"],
   ['features: Free given dated history', FEATURES, "UPDATE public.membership_plans SET features = '{dated_history}' WHERE code = 'free'"],
   ['features: Free given meeting details', FEATURES, "UPDATE public.membership_plans SET features = '{meeting_details}' WHERE code = 'free'"],
   ['features: clients can change plans', FEATURES, 'GRANT UPDATE ON public.membership_plans TO authenticated; CREATE POLICY open_update ON public.membership_plans FOR UPDATE TO authenticated USING (true) WITH CHECK (true)'],
