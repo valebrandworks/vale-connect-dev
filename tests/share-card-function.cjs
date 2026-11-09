@@ -6,8 +6,8 @@ const root = path.resolve(process.argv[2] || path.join(__dirname, '..'));
 const load = rel => import(pathToFileURL(path.join(root, rel)).href);
 
 const ORIGIN = 'https://dev.valebrandworks.com', URL_BASE = 'https://jlprxnmdvoloahssjlnu.supabase.co';
-const SECRETS = { turnstile: 'turnstile-secret-SYNTHETIC', salt: 'salt-SYNTHETIC-0123456789abcdef-0123456789', key: 'sb_secret_SYNTHETICKEY_0123' };
-const ENV = { TURNSTILE_SECRET_KEY: SECRETS.turnstile, SHARE_HASH_SALT: SECRETS.salt, SUPABASE_URL: URL_BASE, SUPABASE_SECRET_KEYS: JSON.stringify({ default: SECRETS.key }) };
+const SECRETS = { turnstile: 'turnstile-secret-SYNTHETIC', salt: 'salt-SYNTHETIC-0123456789abcdef-0123456789', key: 'sb_secret_SYNTHETICKEY_0123', publishable: 'sb_publishable_SYNTHETIC_0123' };
+const ENV = { TURNSTILE_SECRET_KEY: SECRETS.turnstile, SHARE_HASH_SALT: SECRETS.salt, SUPABASE_URL: URL_BASE, SUPABASE_SECRET_KEYS: JSON.stringify({ default: SECRETS.key }), SUPABASE_PUBLISHABLE_KEYS: JSON.stringify({ default: SECRETS.publishable }), SHARE_TRUSTED_ADDRESS_HEADER: 'cf-connecting-ip' };
 const ID = { owner: '0a000000-0000-4000-8000-000000000001', member: '0a000000-0000-4000-8000-000000000002', other: '0a000000-0000-4000-8000-000000000003' };
 const CARD = { owner: '0c000000-0000-4000-8000-000000000001', member: '0c000000-0000-4000-8000-000000000002', other: '0c000000-0000-4000-8000-000000000003', closed: '0c000000-0000-4000-8000-000000000004', draft: '0c000000-0000-4000-8000-000000000005', busy: '0c000000-0000-4000-8000-000000000006', spoof: '0c000000-0000-4000-8000-000000000007' };
 const JWTS = { 'member.jwt.token': ID.member, 'owner.jwt.token': ID.owner };
@@ -54,7 +54,7 @@ async function suite(fn, rebuild) {
       return respond(200, { success: false, 'error-codes': ['invalid-input-response'] });
     }
     if (url === URL_BASE + '/auth/v1/user') {
-      assert.equal(headers.get('apikey'), SECRETS.key, 'Auth is called with the server key');
+      assert.equal(headers.get('apikey'), SECRETS.publishable, 'Auth is called with the low-privilege publishable key, not the secret key');
       const user = JWTS[(headers.get('authorization') || '').replace(/^Bearer /, '')];
       return user ? respond(200, { id: user, aud: 'authenticated' }) : respond(401, { msg: 'invalid JWT' });
     }
@@ -74,12 +74,13 @@ async function suite(fn, rebuild) {
 
   const handlerFor = env => fn.createShareHandler({ env: name => env[name], fetch: fakeFetch, log: entry => logs.push(JSON.stringify(entry)) });
   const handle = handlerFor(ENV);
-  const post = async (body, { origin = ORIGIN, auth, ip = '203.0.113.7', xff, raw, type = 'application/json', h = handle } = {}) => {
+  const post = async (body, { origin = ORIGIN, auth, ip = '203.0.113.7', xff, extra = {}, raw, type = 'application/json', h = handle } = {}) => {
     const headers = { 'Content-Type': type };
     if (origin) headers.Origin = origin;
     if (auth) headers.Authorization = auth;
     if (ip) headers['cf-connecting-ip'] = ip;
     if (xff) headers['x-forwarded-for'] = xff;
+    Object.assign(headers, extra);
     const before = calls.length;
     const res = await h(new Request(URL_BASE + '/functions/v1/share-card', { method: 'POST', headers, body: raw ?? JSON.stringify(body) }));
     const data = await res.json();
@@ -105,12 +106,12 @@ async function suite(fn, rebuild) {
   ok(!new URLSearchParams(turnstileCall.body).has('remoteip'), 'the network address is not sent to Cloudflare');
 
   // The network address: only its salted hash is stored, nowhere in plain form.
-  const expectedHash = await fn.hashAddress(SECRETS.salt, '203.0.113.7');
+  const expectedHash = await fn.hashAddress(SECRETS.salt, 'ipv4:203.0.113.7');
   ok(/^[0-9a-f]{64}$/.test(expectedHash), 'the network hash is a 64-character HMAC');
   ok(await count('public.share_attempts', 'network_hash = $1', [expectedHash]) === 1, 'the attempt is counted under the hash');
   const everything = JSON.stringify((await db.query(`SELECT (SELECT json_agg(t) FROM public.share_attempts t) a, (SELECT json_agg(t) FROM public.card_shares t) s, (SELECT json_agg(t) FROM public.connections t) c, (SELECT json_agg(t) FROM public.notifications t) n`)).rows);
   ok(!everything.includes('203.0.113.7'), 'the raw network address is stored nowhere');
-  ok(await fn.hashAddress('another-salt-0123456789abcdef-0123456789', '203.0.113.7') !== expectedHash, 'the hash depends on the secret salt');
+  ok(await fn.hashAddress('another-salt-0123456789abcdef-0123456789', 'ipv4:203.0.113.7') !== expectedHash, 'the hash depends on the secret salt');
 
   r = await post(first);
   eq(r.answer, 'shared', 'sending the same submission again answers shared');
@@ -208,6 +209,21 @@ async function suite(fn, rebuild) {
   eq(answers, ['shared', 'shared', 'shared', 'shared', 'shared', 'rate_limited'], 'a sixth share within the hour from one network is limited');
   r = await post(busy(7), { ip: '192.0.2.50', xff: '10.9.8.7' });
   eq([r.status, r.answer], [429, 'rate_limited'], 'a made-up X-Forwarded-For does not get around the limit');
+  for (const [name, value] of [['x-real-ip', '10.1.1.1'], ['true-client-ip', '10.1.1.2'], ['forwarded', 'for=10.1.1.3'], ['x-client-ip', '10.1.1.4'], ['fastly-client-ip', '10.1.1.5']]) {
+    r = await post(busy(7), { ip: '192.0.2.50', extra: { [name]: value } });
+    eq(r.answer, 'rate_limited', 'a made-up ' + name + ' header does not get around the limit');
+  }
+  const rotated = [];
+  for (let n = 1; n <= 6; n++) rotated.push((await post(busy(20 + n), { ip: '2001:db8:aa:bb:' + n + '::' + n })).answer);
+  eq(rotated, ['shared', 'shared', 'shared', 'shared', 'shared', 'rate_limited'], 'rotating IPv6 addresses within one /64 network does not get around the limit');
+  r = await post(busy(30), { ip: '::ffff:192.0.2.50' });
+  eq(r.answer, 'rate_limited', 'the same IPv4 address written in IPv6 form is the same network');
+  // Without the trusted header there is no address, so no share at all: a spoofed X-Forwarded-For can't stand in.
+  for (const [label, opts] of [['only X-Forwarded-For', { ip: '', xff: '192.0.2.99' }], ['only X-Real-IP', { ip: '', extra: { 'x-real-ip': '192.0.2.99' } }], ['no address header', { ip: '' }],
+    ['two addresses in the trusted header', { ip: '192.0.2.99, 192.0.2.98' }], ['a malformed address', { ip: 'not-an-address' }], ['an address with a zone', { ip: 'fe80::1%eth0' }], ['a bracketed address', { ip: '[2001:db8::1]' }]]) {
+    r = await post(busy(40), opts);
+    eq([r.status, r.answer, r.outside], [503, 'address_unavailable', []], 'refused before Turnstile or the database: ' + label);
+  }
   r = await post(busy(8), { ip: '192.0.2.51' });
   eq(r.answer, 'shared', 'another network can still share with that card');
   // The same email twice a day per card, even from different networks.
@@ -221,6 +237,9 @@ async function suite(fn, rebuild) {
     ['no Turnstile secret', without('TURNSTILE_SECRET_KEY')], ['blank Turnstile secret', without('TURNSTILE_SECRET_KEY', '  ')],
     ['no hash salt', without('SHARE_HASH_SALT')], ['hash salt too short', without('SHARE_HASH_SALT', 'short')],
     ['no server key', without('SUPABASE_SECRET_KEYS')], ['unreadable server keys', without('SUPABASE_SECRET_KEYS', '{not json')],
+    ['no publishable key', without('SUPABASE_PUBLISHABLE_KEYS')], ['secret key given as the publishable key', without('SUPABASE_PUBLISHABLE_KEYS', JSON.stringify({ default: SECRETS.key }))],
+    ['address trust not confirmed', without('SHARE_TRUSTED_ADDRESS_HEADER')], ['an untrusted address header named', without('SHARE_TRUSTED_ADDRESS_HEADER', 'x-forwarded-for')],
+    ['Supabase address elsewhere', without('SUPABASE_URL', 'https://evil.example')],
     ['no Supabase address', without('SUPABASE_URL')], ['Supabase address not https', without('SUPABASE_URL', 'http://jlprxnmdvoloahssjlnu.supabase.co')],
   ]) {
     r = await post(visitor(), { h: handlerFor(env) });
@@ -250,11 +269,15 @@ async function suite(fn, rebuild) {
   eq([c.res.status, c.res.headers.get('access-control-allow-origin')], [403, null], 'other websites fail the preflight');
   c = await call('PUT', { Origin: ORIGIN });
   eq(c.res.status, 405, 'other methods are refused');
-  c = await call('GET', { 'cf-connecting-ip': '203.0.113.99' });
-  eq([c.res.status, JSON.parse(c.text)], [200, { status: 'ok', checks: { turnstile_secret: true, hash_salt: true, server_key: true, supabase_url: true }, network_source: 'cf-connecting-ip' }], 'the settings check reports yes/no and the address source');
-  ok(![SECRETS.turnstile, SECRETS.salt, SECRETS.key, '203.0.113.99'].some(s => c.text.includes(s)), 'the settings check reveals no values and no address');
-  c = await call('GET', { 'x-forwarded-for': '203.0.113.98, 10.0.0.1' }, handlerFor(without('SHARE_HASH_SALT')));
-  eq([c.res.status, JSON.parse(c.text).checks.hash_salt, JSON.parse(c.text).network_source], [503, false, 'x-forwarded-for'], 'a missing setting shows as "no"');
+  for (const headers of [{}, { 'cf-connecting-ip': '203.0.113.99' }, { Origin: ORIGIN }]) {
+    c = await call('GET', headers);
+    eq(c.res.status, 405, 'there is no public settings check (GET is refused)');
+    ok(![SECRETS.turnstile, SECRETS.salt, SECRETS.key, SECRETS.publishable, '203.0.113.99', 'checks', 'hash_salt', 'network_source'].some(v => c.text.includes(v)), 'and a GET reveals no settings, values or address');
+  }
+  c = await call('GET', {}, handlerFor(without('SHARE_HASH_SALT')));
+  eq([c.res.status, c.text.includes('hash_salt')], [405, false], 'not even when a setting is missing');
+  const configLogs = logs.filter(l => l.startsWith('{"event":"config"'));
+  ok(configLogs.some(l => l.includes('"trusted_address_header"')) && configLogs.some(l => l.includes('"hash_salt"')), 'missing settings are named in the internal function log');
 
   // ---- Logs: outcome words only ----
   const logText = logs.join('\n');
@@ -263,8 +286,10 @@ async function suite(fn, rebuild) {
     'logs contain no names, contact details, addresses, hashes, tokens or secrets');
 
   // ---- Pure checks ----
-  eq(fn.networkAddress(new Headers({ 'cf-connecting-ip': 'not an ip', 'x-forwarded-for': '2001:db8::1' })), { source: 'x-forwarded-for', address: '2001:db8::1' }, 'a malformed cf-connecting-ip is ignored');
-  eq(fn.networkAddress(new Headers({})), { source: 'none', address: null }, 'no address gives no hash');
+  eq(fn.networkKey(new Headers({ 'cf-connecting-ip': 'not an ip', 'x-forwarded-for': '2001:db8::1', 'x-real-ip': '192.0.2.1' })), null, 'a malformed trusted header is not replaced by other headers');
+  eq(fn.networkKey(new Headers({ 'x-forwarded-for': '192.0.2.1' })), null, 'X-Forwarded-For alone gives no address');
+  for (const [text, key] of [['192.0.2.1', 'ipv4:192.0.2.1'], ['192.0.02.1', null], ['256.1.1.1', null], ['2001:DB8:1:2::9', 'ipv6:2001:db8:1:2::/64'], ['2001:db8:1:2:ffff:ffff:ffff:ffff', 'ipv6:2001:db8:1:2::/64'],
+    ['::ffff:192.0.2.1', 'ipv4:192.0.2.1'], ['1::2::3', null], ['1:2:3:4:5:6:7:8:9', null], ['::ffff:999.1.1.1', null], ['', null], ['192.0.2.1,192.0.2.2', null]]) eq(fn.addressKey(text), key, 'address ' + JSON.stringify(text));
   eq(await fn.hashAddress(SECRETS.salt, null), null, 'no address, no hash');
 
   return checks;
@@ -278,8 +303,15 @@ const SABOTAGE = [
   ['member sign-in not verified', 'const member = await memberId(config, jwt);', "const member = { result: 'ok', id: '0a000000-0000-4000-8000-000000000002' };"],
   ['consent not checked', 'if (consent !== true) return null;', ''],
   ['unknown request keys accepted', 'if (Object.keys(body).some(key => !TOP_LEVEL[mode].includes(key))) return null;', ''],
-  ['raw network address stored', 'const networkHash = await hashAddress(config.salt, networkAddress(req.headers).address);', 'const networkHash = networkAddress(req.headers).address;'],
-  ['spoofable network address trusted', "const cf = (headers.get('cf-connecting-ip') || '').trim();", "const cf = (headers.get('x-forwarded-for') || '').split(',')[0].trim();"],
+  ['raw network address stored', 'const networkHash = await hashAddress(config.salt, network);', "const networkHash = req.headers.get('cf-connecting-ip');"],
+  ['X-Forwarded-For trusted first', 'return addressKey(headers.get(TRUSTED_ADDRESS_HEADER));', "return addressKey((headers.get('x-forwarded-for') || '').split(',')[0]) || addressKey(headers.get(TRUSTED_ADDRESS_HEADER));"],
+  ['X-Forwarded-For used as a fallback', 'return addressKey(headers.get(TRUSTED_ADDRESS_HEADER));', "return addressKey(headers.get(TRUSTED_ADDRESS_HEADER)) || addressKey((headers.get('x-forwarded-for') || '').split(',')[0]);"],
+  ['shares allowed without an address', "if (!network) return finish('address_unavailable', origin, '');", ''],
+  ['address trust assumed without confirmation', "trusted_address_header: get('SHARE_TRUSTED_ADDRESS_HEADER').toLowerCase() === TRUSTED_ADDRESS_HEADER,", 'trusted_address_header: true,'],
+  ['IPv6 counted per address, not per network', "return 'ipv6:' + six.slice(0, 4)", "return 'ipv6:' + six.slice(0, 8)"],
+  ['a list of addresses accepted', "if (!value || value.includes(',') || value.includes(' ')) return null;", "if (!value) return null; if (value.includes(',')) return addressKey(value.split(',')[0]);"],
+  ['secret key used for the sign-in check', 'headers: { apikey: config.publicKey, Authorization', 'headers: { apikey: config.serverKey, Authorization'],
+  ['public settings check', "    if (req.method === 'OPTIONS') {", "    if (req.method === 'GET') return reply('ok', '', { checks: config.checks }); if (req.method === 'OPTIONS') {"],
   ['network address sent to Cloudflare', 'idempotency_key: submissionId })', "idempotency_key: submissionId, remoteip: 'x' })"],
   ['missing settings tolerated', 'if (!config.ok) {', 'if (false) {'],
   ['short hash salt accepted', "hash_salt: get('SHARE_HASH_SALT').length >= MIN_SALT_LENGTH,", "hash_salt: get('SHARE_HASH_SALT') !== '',"],

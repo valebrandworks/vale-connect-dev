@@ -8,6 +8,14 @@
 //    consent, rate limits, duplicates and the owner's connection limit. Only this function's server key can call it.
 // The visitor's network address is never stored or logged: only a salted hash of it reaches the database.
 //
+// Network address trust: client-sent headers are never trusted. X-Forwarded-For, X-Real-IP, True-Client-IP and
+// Forwarded are ignored, because a caller can write them. The only source is Cloudflare's CF-Connecting-IP, and
+// only once SHARE_TRUSTED_ADDRESS_HEADER = 'cf-connecting-ip' has been set, after a test on the deployed platform
+// shows a caller can't override it. Until then, or if a request has no single valid address, shares are refused.
+// IPv6 addresses count per /64 network, so rotating addresses within one connection doesn't escape the limits.
+//
+// No public diagnostics: setting problems are written to the function log by name only, never their values.
+//
 // Plain JavaScript with no dependencies, so the same code runs on Supabase (Deno) and in the Node tests. Everything
 // from outside (settings, fetch, logging) is passed in.
 
@@ -17,6 +25,7 @@ export const TURNSTILE_ACTION = 'share-card';
 export const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 export const MAX_BODY_BYTES = 12000;
 export const MIN_SALT_LENGTH = 32;
+export const TRUSTED_ADDRESS_HEADER = 'cf-connecting-ip';
 
 const VISITOR_FIELDS = Object.freeze({ full_name: 90, job_title: 80, business_name: 90, email: 120, phone: 40, website: 300 });
 const MEMBER_FIELDS = Object.freeze(['full_name', 'job_title', 'business_name', 'email', 'phone', 'website', 'social_links']);
@@ -27,45 +36,90 @@ const TOP_LEVEL = Object.freeze({
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
-const ADDRESS = /^[0-9A-Fa-f:.]{2,45}$/;
 
 // What each answer means. The browser only ever learns one of these words, never why a share was a duplicate etc.
 const HTTP = Object.freeze({
   ok: 200, shared: 200, invalid: 400, sign_in_required: 401, verification_failed: 403, forbidden_origin: 403,
   unavailable: 404, method_not_allowed: 405, too_large: 413, rate_limited: 429, error: 502, not_configured: 503,
+  address_unavailable: 503,
 });
 
+// Reads a Supabase key dictionary (SUPABASE_SECRET_KEYS / SUPABASE_PUBLISHABLE_KEYS) and returns its 'default' key.
+function defaultKey(raw) {
+  try { const keys = JSON.parse(raw || 'null'); return keys && typeof keys.default === 'string' ? keys.default.trim() : ''; } catch { return ''; }
+}
+
 // Reads the settings. Anything missing or unusable makes the function refuse every share.
+// Keys, per Supabase's current guidance: the secret key (elevated) is used only to call record_share; the
+// publishable key (low privilege) is enough to check a member's sign-in with Supabase Auth.
 export function readConfig(env) {
   const get = name => { const v = env(name); return typeof v === 'string' ? v.trim() : ''; };
-  let serverKey = '';
-  try { const keys = JSON.parse(get('SUPABASE_SECRET_KEYS') || 'null'); if (keys && typeof keys.default === 'string') serverKey = keys.default.trim(); } catch { /* unusable, treated as missing */ }
-  if (!serverKey) serverKey = get('SUPABASE_SERVICE_ROLE_KEY');
+  const serverKey = defaultKey(get('SUPABASE_SECRET_KEYS')) || get('SUPABASE_SERVICE_ROLE_KEY');
+  const publicKey = defaultKey(get('SUPABASE_PUBLISHABLE_KEYS')) || get('SUPABASE_ANON_KEY');
   const url = get('SUPABASE_URL').replace(/\/+$/, '');
   const checks = {
     turnstile_secret: get('TURNSTILE_SECRET_KEY') !== '',
     hash_salt: get('SHARE_HASH_SALT').length >= MIN_SALT_LENGTH,
     server_key: serverKey !== '',
-    supabase_url: /^https:\/\/[a-z0-9.-]+$/i.test(url),
+    publishable_key: publicKey !== '' && !publicKey.startsWith('sb_secret_') && publicKey !== serverKey,
+    supabase_url: /^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url),
+    trusted_address_header: get('SHARE_TRUSTED_ADDRESS_HEADER').toLowerCase() === TRUSTED_ADDRESS_HEADER,
   };
-  return { ok: Object.values(checks).every(Boolean), checks, turnstileSecret: get('TURNSTILE_SECRET_KEY'), salt: get('SHARE_HASH_SALT'), serverKey, url };
+  return { ok: Object.values(checks).every(Boolean), checks, turnstileSecret: get('TURNSTILE_SECRET_KEY'), salt: get('SHARE_HASH_SALT'), serverKey, publicKey, url };
 }
 
-// Where the visitor's network address comes from. Cloudflare sets cf-connecting-ip itself; otherwise the first
-// x-forwarded-for entry. Which one the platform provides is reported (without the address) by a GET request.
-export function networkAddress(headers) {
-  const cf = (headers.get('cf-connecting-ip') || '').trim();
-  if (ADDRESS.test(cf)) return { source: 'cf-connecting-ip', address: cf };
-  const first = (headers.get('x-forwarded-for') || '').split(',')[0].trim();
-  if (ADDRESS.test(first)) return { source: 'x-forwarded-for', address: first };
-  return { source: 'none', address: null };
+// A strict IPv4 address, as four numbers.
+function ipv4(text) {
+  const parts = text.split('.');
+  if (parts.length !== 4 || !parts.every(p => /^(0|[1-9][0-9]{0,2})$/.test(p) && Number(p) <= 255)) return null;
+  return parts.map(Number);
 }
 
-export async function hashAddress(salt, address) {
-  if (!address) return null;
+// A strict IPv6 address, as eight 16-bit groups (or an IPv4 address it carries). No zone IDs or brackets.
+function ipv6(text) {
+  if (!/^[0-9a-f:.]+$/i.test(text) || text.length > 45 || !text.includes(':')) return null;
+  let four = null, head = text;
+  if (text.includes('.')) {                                   // IPv4 in the last 32 bits, e.g. ::ffff:192.0.2.1
+    const lastColon = text.lastIndexOf(':');
+    four = ipv4(text.slice(lastColon + 1));
+    if (!four) return null;
+    head = text.slice(0, lastColon + 1) + '0:0';              // parse with two stand-in groups, filled in below
+  }
+  const halves = head.split('::');
+  if (halves.length > 2) return null;
+  const group = s => (s === '' ? [] : s.split(':'));
+  const left = group(halves[0]), right = halves.length === 2 ? group(halves[1]) : [];
+  if (![...left, ...right].every(g => /^[0-9a-f]{1,4}$/i.test(g))) return null;
+  const known = left.length + right.length;
+  if (halves.length === 1 ? known !== 8 : known > 7) return null;
+  const groups = [...left, ...Array(8 - known).fill('0'), ...right].map(g => parseInt(g, 16));
+  if (four) { groups[6] = (four[0] << 8) | four[1]; groups[7] = (four[2] << 8) | four[3]; }
+  return groups;
+}
+
+// The rate-limit key for an address: an IPv4 address itself, or the /64 network of an IPv6 address.
+// Returns null for anything that isn't exactly one valid address.
+export function addressKey(text) {
+  const value = (text || '').trim();
+  if (!value || value.includes(',') || value.includes(' ')) return null;
+  const four = ipv4(value);
+  if (four) return 'ipv4:' + four.join('.');
+  const six = ipv6(value);
+  if (!six) return null;
+  if (six.slice(0, 5).every(g => g === 0) && six[5] === 0xffff) return 'ipv4:' + [six[6] >> 8, six[6] & 255, six[7] >> 8, six[7] & 255].join('.');
+  return 'ipv6:' + six.slice(0, 4).map(g => g.toString(16)).join(':') + '::/64';
+}
+
+// The visitor's network, from the one trusted header only. Every other address header is ignored.
+export function networkKey(headers) {
+  return addressKey(headers.get(TRUSTED_ADDRESS_HEADER));
+}
+
+export async function hashAddress(salt, key) {
+  if (!key) return null;
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', enc.encode(salt), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode('network:' + address.toLowerCase())));
+  const hmac = await crypto.subtle.importKey('raw', enc.encode(salt), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', hmac, enc.encode('network:' + key)));
   return Array.from(mac, b => b.toString(16).padStart(2, '0')).join('');
 }
 
@@ -141,7 +195,8 @@ export function createShareHandler({ env, fetch: fetchImpl, log = () => {}, time
   async function memberId(config, jwt) {
     let res;
     try {
-      res = await fetchImpl(config.url + '/auth/v1/user', { method: 'GET', signal: signal(), headers: { apikey: config.serverKey, Authorization: 'Bearer ' + jwt } });
+      // The member's own sign-in token in Authorization; the low-privilege publishable key in apikey.
+      res = await fetchImpl(config.url + '/auth/v1/user', { method: 'GET', signal: signal(), headers: { apikey: config.publicKey, Authorization: 'Bearer ' + jwt } });
     } catch { return { result: 'error' }; }
     if (res.status === 401 || res.status === 403) return { result: 'sign_in_required' };
     if (!res.ok) return { result: 'error' };
@@ -152,7 +207,8 @@ export function createShareHandler({ env, fetch: fetchImpl, log = () => {}, time
 
   async function recordShare(config, params) {
     const headers = { 'Content-Type': 'application/json', apikey: config.serverKey };
-    // New secret keys go in the apikey header only; the legacy service_role key is a JWT and also goes in Authorization.
+    // New secret keys aren't JWTs: Supabase requires them in the apikey header only (in Authorization they're rejected
+    // as an invalid JWT). The legacy service_role key is a JWT and also goes in Authorization.
     if (!config.serverKey.startsWith('sb_')) headers.Authorization = 'Bearer ' + config.serverKey;
     let res;
     try { res = await fetchImpl(config.url + '/rest/v1/rpc/record_share', { method: 'POST', signal: signal(), headers, body: JSON.stringify(params) }); }
@@ -166,19 +222,17 @@ export function createShareHandler({ env, fetch: fetchImpl, log = () => {}, time
     const origin = req.headers.get('origin') || '';
     const config = readConfig(env);
 
-    // A settings check for after deploying: says only which settings are present and where the network address
-    // came from, never their values or the address.
-    if (req.method === 'GET') {
-      const { source } = networkAddress(req.headers);
-      return reply(config.ok ? 'ok' : 'not_configured', '', { checks: config.checks, network_source: source });
-    }
     if (req.method === 'OPTIONS') {
       if (!ALLOWED_ORIGINS.includes(origin)) return reply('forbidden_origin', '');
       return new Response(null, { status: 204, headers: reply('ok', origin).headers });
     }
     if (req.method !== 'POST') return reply('method_not_allowed', origin);
     if (!ALLOWED_ORIGINS.includes(origin)) return finish('forbidden_origin', '', '');
+    // Internal diagnostics only: the names of missing settings go to the function log, never to the caller.
     if (!config.ok) { log({ event: 'config', missing: Object.keys(config.checks).filter(k => !config.checks[k]) }); return finish('not_configured', origin, ''); }
+    // No trustworthy network address, no share: the network rate limits must not be escapable.
+    const network = networkKey(req.headers);
+    if (!network) return finish('address_unavailable', origin, '');
 
     if (!/^application\/json\b/i.test(req.headers.get('content-type') || '')) return finish('invalid', origin, '');
     const declared = Number(req.headers.get('content-length') || '0');
@@ -208,7 +262,7 @@ export function createShareHandler({ env, fetch: fetchImpl, log = () => {}, time
       sharerId = member.id;
     }
 
-    const networkHash = await hashAddress(config.salt, networkAddress(req.headers).address);
+    const networkHash = await hashAddress(config.salt, network);
     const result = await recordShare(config, {
       p_card_slug: request.card,
       p_submission_id: request.submissionId,
