@@ -65,7 +65,7 @@ const lastSelected=()=>events.filter(e=>e.type==='vale-card-selected').pop().det
  type('multi-website','not a website');await save();assert.equal(rows.length,0);assert.match(get('cards-status').textContent,/website/);
  type('multi-website','example.com');await save();
  assert.equal(rows.length,1);assert.equal(rows[0].owner_id,'owner-a');assert.equal(rows[0].card_label,'My card');assert.equal(rows[0].slug,'ana-ruiz-abcdef');
- assert.equal(inserts.at(-1).published,false,'the insert itself asks for a private draft, as the database requires');assert.equal(rows[0].appearance,'midnight','appearance is saved');
+ assert.equal(inserts.at(-1).published,false,'the insert itself asks for a private draft, as the database requires');assert.equal(inserts.at(-1).accept_shares,true,'new cards ask for sharing back on, like the database default');assert.equal(rows[0].appearance,'midnight','appearance is saved');
  assert.equal(get('card-preview').children[0].preset,'midnight','the card screen shows the saved appearance');assert.equal(rows[0].published,false);
  assert.match(get('cards-status').textContent,/Draft saved/);
  // The card itself is the screen, with Share beneath it. No switcher or second card on Free.
@@ -101,8 +101,12 @@ const lastSelected=()=>events.filter(e=>e.type==='vale-card-selected').pop().det
  assert.equal(get('cards-new').hidden,false);get('cards-new').onclick();type('multi-label','Personal');type('multi-fullName','Ana Home');await save();
  assert.equal(rows.length,2);assert.equal(get('card-switcher').hidden,false);assert.equal(get('card-switcher').children.length,2);
  get('card-switcher').children.find(b=>b.textContent==='Work').onclick();assert.equal(lastSelected().card.card_label,'Work');
+ // Sharing back: the owner can turn it off and on again; the editor shows what's saved.
+ const work=()=>rows.find(r=>r.card_label==='Work');
+ get('card-edit').onclick();assert.equal(get('multi-accept-shares').checked,true);get('multi-accept-shares').checked=false;await save();assert.equal(work().accept_shares,false,'turning sharing back off is saved');
+ get('card-edit').onclick();assert.equal(get('multi-accept-shares').checked,false,'the editor shows sharing back is off');get('multi-accept-shares').checked=true;await save();assert.equal(work().accept_shares,true,'and it can be turned back on');
  // Another account never sees these cards; signing out empties the screen.
  handlers['vale-account-ready']({detail:{client,user:{id:'owner-b'}}});await settle();assert.equal(get('card-empty').hidden,false);assert.equal(lastSelected().card,null);
  handlers['vale-account-ready']({detail:{client,user:null}});await settle();assert.equal(get('card-signed-out').hidden,false);assert.equal(get('multi-fullName').value,'');
- console.log('PASS: field conversion/VCF/validation; new cards are inserted as private drafts (database rule mirrored); publishing is a separate confirmed step; Share appears once public; fixed link; revision-guarded edits keep stale text; import fills the editor without saving; tick-box deletion; multi-card switcher on larger plans; accounts kept apart.');
+ console.log('PASS: field conversion/VCF/validation; new cards are inserted as private drafts (database rule mirrored); publishing is a separate confirmed step; Share appears once public; fixed link; revision-guarded edits keep stale text; import fills the editor without saving; tick-box deletion; multi-card switcher on larger plans; sharing back on by default and switchable per card; accounts kept apart.');
 })().catch(e=>{console.error(e);process.exitCode=1});

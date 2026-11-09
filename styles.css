@@ -136,3 +136,30 @@ details>summary{cursor:pointer;color:var(--ivory-2);font-weight:600;padding:6px 
 dialog.ask{border:1px solid var(--line-strong);border-radius:16px;background:var(--surface);color:var(--ivory);padding:20px;max-width:min(420px,calc(100vw - 32px))}
 dialog.ask::backdrop{background:#000a}
 dialog.ask p{margin:0 0 16px;line-height:1.5}
+
+/* Share your details back (public card page) */
+.share-back h2{font-size:18px}
+.share-back h2:focus{outline:none}
+.share-form{margin-top:4px}
+.share-mode{display:grid;grid-template-columns:1fr 1fr;gap:4px;border:1px solid var(--line-strong);border-radius:12px;padding:4px;margin:14px 0 0}
+.share-mode .seg{position:relative;margin:0;display:flex;align-items:center;justify-content:center;min-height:40px;padding:8px 10px;border-radius:9px;color:var(--ivory-2);font-weight:600;font-size:13px;cursor:pointer;text-align:center}
+.share-mode .seg input{position:absolute;opacity:0;width:1px;height:1px}
+.share-mode .seg:has(input:checked){background:var(--gold);color:var(--gold-ink)}
+.share-mode .seg:has(input:focus-visible){outline:2px solid var(--gold-soft);outline-offset:2px}
+.share-mode .seg:has(input:disabled){opacity:.45;cursor:not-allowed}
+.share-picks{border:0;padding:0;margin:14px 0 0}
+.share-picks legend{font-size:13px;font-weight:600;color:var(--ivory-2);padding:0;margin-bottom:4px}
+.check.pick{margin:0;padding:10px 2px;border-bottom:1px solid var(--line)}
+.check.pick:last-child{border-bottom:0}
+.check.pick>span{min-width:0;flex:1}
+.pick-value{display:block;font-size:13px;overflow-wrap:anywhere}
+.share-more{margin-top:12px}
+.share-more summary{font-size:13px}
+.share-check{margin-top:16px;min-height:65px}
+.check.consent{margin-top:14px;font-size:13px;line-height:1.5;color:var(--ivory-2)}
+.check.consent input{width:20px;height:20px;flex:none;margin-top:1px}
+.field-error{color:var(--danger);font-size:12px;margin:6px 0 0}
+[aria-invalid=true]{border-color:var(--danger)}
+.status[data-tone=error]{color:var(--danger)}
+.share-done{color:var(--gold-soft)}
+.share-back:focus-within{border-color:#c9a45c55}

@@ -97,6 +97,8 @@
   $('card-slug-hint').textContent=row?'Your card’s link name is fixed so printed QR codes keep working.':'Lowercase letters, numbers and hyphens. It can’t be changed later, so printed QR codes keep working.';
   // New cards always start as private drafts (the database requires it); publishing comes after review.
   $('multi-published').checked=row?!!row.published:false;$('card-public-field').hidden=!row;$('card-draft-note').hidden=!!row;
+  // Sharing back is on unless the owner turned it off (the database default is on).
+  if($('multi-accept-shares'))$('multi-accept-shares').checked=row?row.accept_shares!==false:true;
   $('card-delete-section').hidden=!row;$('card-delete-section').open=false;$('card-delete-understand').checked=false;
   $('card-editor-title').textContent=row?'Edit card':'Create your card';
   if($('card-photo-note'))$('card-photo-note').textContent=row?'Your photo is cropped to a square and shown as a circle. It’s saved with your card.':'Save your card first, then you can add a photo.';
@@ -229,7 +231,7 @@
   const site=values.website;if(site&&!view.web(site)){message('Enter a website such as example.com.');return}
   const invalid=tools.validate(label,slug,values);if(invalid){message(invalid);return}
   const published=row?$('multi-published').checked:false;
-  const edits={...tools.toRow(values),card_label:label,appearance,...(row?imageEdits():{})};
+  const edits={...tools.toRow(values),card_label:label,appearance,...(row?imageEdits():{}),...($('multi-accept-shares')?{accept_shares:$('multi-accept-shares').checked}:{})};
   // Making a published card private also renames its images, so links made while it was public stop working.
   if(row&&row.published&&!published&&images){
    void run(async e=>{

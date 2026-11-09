@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -54,6 +54,9 @@ if (shareStart < 0 || shareEnd < 8) throw new Error('record_share not found for 
 const recordShare = sharingSql.slice(shareStart, shareEnd).replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION');
 const withoutRule = (find, replace = '') => { if (!recordShare.includes(find)) throw new Error('Sharing rule not found: ' + find); return recordShare.replace(find, replace); };
 const brokenRules = [
+  ['share back: visitors can change the switch', SHARE_BACK, 'GRANT SELECT, UPDATE ON public.public_cards TO anon; CREATE POLICY anon_read ON public.public_cards FOR SELECT TO anon USING (true); CREATE POLICY anon_update ON public.public_cards FOR UPDATE TO anon USING (true) WITH CHECK (true)'],
+  ['share back: any account can change the switch', SHARE_BACK, 'DROP POLICY public_cards_select_own ON public.public_cards; CREATE POLICY s ON public.public_cards FOR SELECT TO authenticated USING (true); DROP POLICY "Users can update their own cards" ON public.public_cards; CREATE POLICY open_update ON public.public_cards FOR UPDATE TO authenticated USING (true) WITH CHECK (true)'],
+  ['share back: off by default', SHARE_BACK, 'ALTER TABLE public.public_cards ALTER COLUMN accept_shares SET DEFAULT false'],
   ['indexes: a sharing link loses its index', SHARING_INDEXES, 'DROP INDEX public.notifications_connection_idx'],
   ['indexes: a new unindexed link is added', SHARING_INDEXES, 'CREATE TABLE public.demo_link (id uuid PRIMARY KEY, card_id uuid REFERENCES public.public_cards(id) ON DELETE CASCADE)'],
   ['sharing: visitors can record shares directly', SHARING, 'GRANT EXECUTE ON FUNCTION public.record_share(text, uuid, boolean, text, jsonb, text[], uuid, uuid, text, text) TO anon'],
