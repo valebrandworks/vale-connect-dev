@@ -28,7 +28,7 @@ p{margin:.4em 0}
 .nav button svg{width:22px;height:22px}
 .nav button[aria-selected=true]{color:var(--gold)}
 @media(min-width:860px){
- .nav{position:sticky;top:61px;bottom:auto;max-width:720px;margin:0 auto;grid-template-columns:repeat(4,auto);justify-content:start;gap:4px;background:transparent;border:0;padding:16px 16px 0;backdrop-filter:none}
+ .nav{position:sticky;top:61px;bottom:auto;max-width:720px;margin:0 auto;grid-template-columns:repeat(4,auto);justify-content:start;gap:4px;background:#111317f2;border:0;padding:16px 16px 0;backdrop-filter:none}
  .nav button{flex-direction:row;font-size:14px;padding:8px 14px;border:1px solid transparent}
  .nav button svg{width:18px;height:18px}
  .nav button[aria-selected=true]{border-color:#c9a45c66;background:#c9a45c14}
@@ -118,6 +118,15 @@ details>summary{cursor:pointer;color:var(--ivory-2);font-weight:600;padding:6px 
 .preset[data-value=midnight] .swatch{background:linear-gradient(160deg,#0d0d10,#050506);border-color:#d4af37}
 .preset[data-value=slate] .swatch{background:linear-gradient(160deg,#2f3740,#242b33);border-color:#c9a45c88}
 .editor-preview{margin-bottom:6px}
+.photo-row{display:flex;align-items:center;gap:14px}
+.photo-thumb{flex:none;width:64px;height:64px;border-radius:50%;background:#2a2620;border:1px solid #c9a45c66;display:grid;place-items:center;color:var(--gold-soft);font-weight:600;overflow:hidden}
+.photo-thumb img{width:100%;height:100%;object-fit:cover}
+.cropper{margin-top:12px}
+.crop-frame{position:relative;width:min(100%,320px);aspect-ratio:1;margin:0 auto;overflow:hidden;border-radius:14px;touch-action:none}
+.crop-frame canvas{display:block;width:100%;height:100%;cursor:grab}
+.crop-frame canvas:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
+.crop-frame:after{content:'';position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 999px #000a;pointer-events:none}
+.cropper input[type=range]{padding:0;accent-color:var(--gold)}
 
 /* In-page confirmation */
 dialog.ask{border:1px solid var(--line-strong);border-radius:16px;background:var(--surface);color:var(--ivory);padding:20px;max-width:min(420px,calc(100vw - 32px))}

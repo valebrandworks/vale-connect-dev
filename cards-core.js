@@ -11,10 +11,13 @@
     if(!text(editor.fullName))return 'Enter the name to display on this card.';
     return '';
   }
-  function vcard(editor){
+  // photo: optional base64 JPEG. Long lines are folded at 75 characters, as vCard requires.
+  function fold(line){if(line.length<=75)return line;const parts=[line.slice(0,75)];for(let i=75;i<line.length;i+=74)parts.push(' '+line.slice(i,i+74));return parts.join('\r\n')}
+  function vcard(editor,photo=''){
     const esc=v=>text(v).replace(/\\/g,'\\\\').replace(/\n/g,'\\n').replace(/,/g,'\\,').replace(/;/g,'\\;');
     const urls=text(editor.socials).split('\n').map(line=>{const p=line.split('|');return text(p.length>1?p.slice(1).join('|'):p[0])}).filter(u=>/^https?:\/\//i.test(u));
-    return ['BEGIN:VCARD','VERSION:3.0','FN:'+esc(editor.fullName),'ORG:'+esc(editor.company),'TITLE:'+esc(editor.jobTitle),'TEL:'+esc(editor.phone),'EMAIL:'+esc(editor.email),'URL:'+esc(editor.website),'NOTE:'+esc(editor.bio),...urls.map(u=>'URL:'+esc(u)),'END:VCARD'].join('\r\n');
+    const image=/^[A-Za-z0-9+/]+=*$/.test(photo)?[fold('PHOTO;ENCODING=b;TYPE=JPEG:'+photo)]:[];
+    return ['BEGIN:VCARD','VERSION:3.0','FN:'+esc(editor.fullName),'ORG:'+esc(editor.company),'TITLE:'+esc(editor.jobTitle),'TEL:'+esc(editor.phone),'EMAIL:'+esc(editor.email),'URL:'+esc(editor.website),'NOTE:'+esc(editor.bio),...urls.map(u=>'URL:'+esc(u)),...image,'END:VCARD'].join('\r\n');
   }
   const api={fields,toEditor,toRow,validate,vcard};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeCardTools=api;

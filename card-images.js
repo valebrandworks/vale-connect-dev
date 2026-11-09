@@ -65,10 +65,40 @@
    return {ok:true,changed:true,card};
   }catch(error){return {ok:false,changed:true,card,stage:'delete',error}}
  }
+ // Uploads a prepared image into the card's folder under a new random name. Never overwrites.
+ async function upload(client,cardId,kind,blob,ext,{random=randomPart}={}){
+  if(!['photo','logo'].includes(kind)||!['webp','png','jpg'].includes(ext))throw Error('Unsupported image.');
+  const path=cardId+'/'+kind+'-'+random()+'.'+ext;
+  if(!PATH.test(path))throw Error('Unexpected image path.');
+  const type=ext==='jpg'?'image/jpeg':'image/'+ext;
+  const {error}=await client.storage.from(BUCKET).upload(path,blob,{contentType:type,cacheControl:'300',upsert:false});
+  if(error)throw error;return path;
+ }
+ // Images are private, so they're downloaded with the viewer's own permissions and shown from memory.
+ // A visitor can only download an image attached to a published card.
+ const urls=new Map();
+ async function objectUrl(client,path){
+  if(!path)return null;if(urls.has(path))return urls.get(path);
+  const {data,error}=await client.storage.from(BUCKET).download(path);
+  if(error||!data)return null;
+  const url=root.URL.createObjectURL(data);urls.set(path,url);return url;
+ }
+ async function blobOf(client,path){const {data}=await client.storage.from(BUCKET).download(path);return data||null}
+ // A small JPEG copy for contact files, which widely support JPEG only.
+ async function contactPhoto(blob,size=256,doc=root.document){
+  if(!blob)return '';
+  try{
+   const bitmap=await root.createImageBitmap(blob),c=doc.createElement('canvas');c.width=c.height=size;
+   c.getContext('2d').drawImage(bitmap,0,0,size,size);
+   const jpeg=await new Promise(r=>c.toBlob(r,'image/jpeg',0.85));if(!jpeg)return '';
+   const bytes=new Uint8Array(await jpeg.arrayBuffer());let s='';for(let i=0;i<bytes.length;i+=0x8000)s+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
+   return root.btoa(s);
+  }catch{return ''}
+ }
  // Background tidy-up for the signed-in owner's cards: removes unattached files older than 10 minutes.
  async function sweep(client,cards,options={}){
   let removed=0;for(const card of cards){try{removed+=await removeUnattached(client,card,{minAgeMs:ORPHAN_AGE_MS,...options})}catch{}}return removed;
  }
- const api={BUCKET,PATH,renamed,attached,listCard,removeUnattached,makePrivate,finishPrivate,sweep};
+ const api={BUCKET,PATH,renamed,attached,listCard,remove,removeUnattached,makePrivate,finishPrivate,sweep,upload,objectUrl,blobOf,contactPhoto};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeCardImages=api;
 })(typeof window!=='undefined'?window:globalThis);

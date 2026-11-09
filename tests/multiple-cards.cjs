@@ -39,7 +39,7 @@ class Query{
 const storageCalls=[];const client={from:()=>new Query(),storage:{from:()=>({list:async d=>{storageCalls.push('list:'+d);return {data:[],error:null}},copy:async()=>({error:{message:'unexpected copy'}}),remove:async p=>{storageCalls.push('remove');return {data:[],error:null}}})}};
 const renders=[];const view={PRESETS:['charcoal','ivory','midnight','slate'],preset:v=>['charcoal','ivory','midnight','slate'].includes(v)?v:'charcoal',render:(data,options={})=>{renders.push(options.preset);return Object.assign(new Element('rendered'),{data,preset:options.preset})},web:s=>/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(String(s).replace(/^https?:\/\//,''))?'https://'+s:null};
 const context={window:{ValeCardImages:require(path.join(path.resolve(root),'card-images.js')),ValeAccountLists:require(path.join(path.resolve(root),'account-lists.js')),ValeCardTools:tools,ValeCardView:view,ValeUsage:{usage:()=>usage,refresh(){}},ValeApp:{tab(){}},
- addEventListener:(k,fn)=>{handlers[k]=fn},dispatchEvent:e=>events.push(e)},document:{getElementById:get,createElement:()=>new Element('made'),addEventListener(){},hidden:false},
+ addEventListener:(k,fn)=>{handlers[k]=fn},dispatchEvent:e=>events.push(e)},document:{getElementById:get,createElement:()=>new Element('made'),createTextNode:t=>({textContent:t}),addEventListener(){},hidden:false},
  confirm:()=>consent,CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},Event:class{constructor(t){this.type=t}},crypto:{randomUUID:()=>'abcdef12-3456'},navigator:{onLine:true}};
 // Appearance buttons, as in index.html.
 const presetButtons=['charcoal','ivory','midnight','slate'].map(v=>Object.assign(new Element('preset-'+v),{dataset:{value:v},tabIndex:-1,getAttribute(k){return this.attrs[k]}}));
