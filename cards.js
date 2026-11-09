@@ -21,17 +21,22 @@
   images.objectUrl(client,path).then(url=>{shown.set(path,url);if(url)redraw()}).catch(()=>{});
   return null;
  }
- // Photo changes are staged in the editor and saved with Save card.
+ // Photo and logo changes are staged in the editor and saved with Save card.
  // staged: undefined = unchanged; null = remove; a path = a newly uploaded, not yet attached file.
- let photo={original:null,staged:undefined,url:null},cropping=null;
- const photoChanged=()=>photo.staged!==undefined;
- const editorPhotoPath=()=>photo.staged===undefined?photo.original:photo.staged;
- function editorPhotoUrl(){return photo.staged?photo.url:photo.staged===null?null:photoUrl(photo.original,renderEditorPreview)}
- async function discardStaged(){
-  const path=photo.staged;if(path&&images&&client){try{await images.remove(client,[path])}catch{}}
-  if(photo.url)URL.revokeObjectURL?.(photo.url);
-  photo={...photo,staged:undefined,url:null};
+ const KINDS=['photo','logo'],COLUMN={photo:'photo_path',logo:'logo_path'};
+ const blank=original=>({original:original||null,staged:undefined,url:null});
+ let media={photo:blank(),logo:blank()},cropping=null;
+ const changed=kind=>media[kind].staged!==undefined;
+ const editorPath=kind=>media[kind].staged===undefined?media[kind].original:media[kind].staged;
+ function editorUrl(kind){const m=media[kind];return m.staged?m.url:m.staged===null?null:photoUrl(m.original,renderEditorPreview)}
+ async function discardStaged(kind){
+  const m=media[kind],path=m.staged;if(path&&images&&client){try{await images.remove(client,[path])}catch{}}
+  if(m.url)URL.revokeObjectURL?.(m.url);
+  media[kind]={...m,staged:undefined,url:null};
  }
+ const discardAll=async()=>{for(const kind of KINDS)await discardStaged(kind)};
+ // The image columns to save, for whichever images changed.
+ const imageEdits=()=>Object.fromEntries(KINDS.filter(changed).map(k=>[COLUMN[k],media[k].staged||null]));
 
  // Appearance picker: one choice, keyboard-friendly, previewed live in the editor.
  function setAppearance(value,{markDirty=false}={}){
@@ -41,13 +46,15 @@
  }
  function renderEditorPreview(){
   const host=$('card-editor-preview');if(!host||editing===null)return;
-  const values=Object.fromEntries(fields.map(k=>[k,$('multi-'+k).value])),url=editorPhotoUrl();
-  host.replaceChildren(view.render(values,{preset:appearance,photoUrl:url}));
-  const thumb=$('card-photo-thumb');
-  if(thumb){if(url){const img=document.createElement('img');img.src=url;img.alt='';thumb.replaceChildren(img)}else thumb.replaceChildren(document.createTextNode(view.initials?view.initials(values.fullName):''))}
-  const has=!!editorPhotoPath();
-  if($('card-photo-choose'))$('card-photo-choose').textContent=has?'Change photo':'Add photo';
-  if($('card-photo-remove'))$('card-photo-remove').hidden=!has;
+  const values=Object.fromEntries(fields.map(k=>[k,$('multi-'+k).value])),url={photo:editorUrl('photo'),logo:editorUrl('logo')};
+  host.replaceChildren(view.render(values,{preset:appearance,photoUrl:url.photo,logoUrl:url.logo}));
+  for(const kind of KINDS){
+   const thumb=$('card-'+kind+'-thumb'),fallback=kind==='photo'?(view.initials?view.initials(values.fullName):''):'LOGO';
+   if(thumb){if(url[kind]){const img=document.createElement('img');img.src=url[kind];img.alt='';thumb.replaceChildren(img)}else thumb.replaceChildren(document.createTextNode(fallback))}
+   const has=!!editorPath(kind),noun=kind==='photo'?'photo':'logo';
+   if($('card-'+kind+'-choose'))$('card-'+kind+'-choose').textContent=(has?'Change ':'Add ')+noun;
+   if($('card-'+kind+'-remove'))$('card-'+kind+'-remove').hidden=!has;
+  }
  }
  for(const b of document.querySelectorAll?.('#card-appearance [data-value]')||[]){
   b.addEventListener('click',()=>setAppearance(b.dataset.value,{markDirty:true}));
@@ -65,7 +72,7 @@
   $('card-home').hidden=!selected||isEditing;
   $('card-editor').hidden=!isEditing;
   if(selected&&!isEditing){
-   $('card-preview').replaceChildren(view.render(tools.toEditor(selected),{preset:selected.appearance,photoUrl:photoUrl(selected.photo_path,render)}));
+   $('card-preview').replaceChildren(view.render(tools.toEditor(selected),{preset:selected.appearance,photoUrl:photoUrl(selected.photo_path,render),logoUrl:photoUrl(selected.logo_path,render)}));
    const pill=$('card-visibility');pill.className='pill'+(selected.published?' public':'');pill.textContent=selected.published?'Public':'Private draft · only you can see it';
    $('card-publish-row').hidden=!!selected.published;$('card-share-row').hidden=!selected.published;
    $('card-link-name').textContent=multi()?selected.card_label:'';
@@ -79,7 +86,7 @@
  function closeCropper(){if(cropping?.bitmap?.close)cropping.bitmap.close();cropping=null;if($('card-photo-cropper'))$('card-photo-cropper').hidden=true}
  function openEditor(row,values){
   editing=row?row.id:'new';dirty=!!values;closeCropper();
-  photo={original:row?.photo_path||null,staged:undefined,url:null};
+  media={photo:blank(row?.photo_path),logo:blank(row?.logo_path)};
   const v=values||(row?tools.toEditor(row):Object.fromEntries(fields.map(k=>[k,''])));
   fields.forEach(k=>{$('multi-'+k).value=v[k]||''});
   $('multi-label').value=row?row.card_label:(cards.length?'':'My card');
@@ -91,14 +98,15 @@
   $('card-delete-section').hidden=!row;$('card-delete-section').open=false;$('card-delete-understand').checked=false;
   $('card-editor-title').textContent=row?'Edit card':'Create your card';
   if($('card-photo-note'))$('card-photo-note').textContent=row?'Your photo is cropped to a square and shown as a circle. It’s saved with your card.':'Save your card first, then you can add a photo.';
-  if($('card-photo-choose'))$('card-photo-choose').hidden=!row;
+  for(const kind of KINDS)if($('card-'+kind+'-choose'))$('card-'+kind+'-choose').hidden=!row;
+  if($('card-logo-note'))$('card-logo-note').textContent=row?'Shown on a white tile in the corner of your card. PNG keeps a transparent background. SVG files aren\u2019t accepted.':'Save your card first, then you can add a logo.';
   setAppearance(row?.appearance||'charcoal');
   message(values?'Review these details, then save.':'');
   render();window.ValeApp?.tab('card');$('multi-fullName').focus?.();
  }
  async function closeEditor(){
   if(dirty&&!await ask('Discard your unsaved card changes?',{confirmLabel:'Discard'}))return;
-  closeCropper();await discardStaged();editing=null;dirty=false;message('');render();
+  closeCropper();await discardAll();editing=null;dirty=false;message('');render();
  }
  async function listCards(){
   const e=epoch,owner=user.id;
@@ -154,18 +162,41 @@
     const {blob,ext}=await crop.encode(job.bitmap,job.state);
     const path=await images.upload(client,row.id,'photo',blob,ext);
     if(e!==epoch){try{await images.remove(client,[path])}catch{}return}
-    await discardStaged();
-    photo={...photo,staged:path,url:URL.createObjectURL(blob)};dirty=true;closeCropper();renderEditorPreview();
+    await discardStaged('photo');
+    media.photo={...media.photo,staged:path,url:URL.createObjectURL(blob)};dirty=true;closeCropper();renderEditorPreview();
     message('Photo ready. Choose Save card to keep it.');
    });
   };
   $('card-photo-remove').onclick=()=>{
    if(busy)return;
-   void (async()=>{await discardStaged();photo={...photo,staged:photo.original?null:undefined};dirty=true;renderEditorPreview();message(photo.original?'Photo will be removed when you choose Save card.':'')})();
+   void (async()=>{await discardStaged('photo');media.photo={...media.photo,staged:media.photo.original?null:undefined};dirty=true;renderEditorPreview();message(media.photo.original?'Photo will be removed when you choose Save card.':'')})();
+  };
+ }
+ // Logo picker: no cropping; scaled to fit 512 px with its shape and transparency kept.
+ if(crop?.encodeLogo&&images&&$('card-logo-input')){
+  $('card-logo-choose').onclick=()=>{if(editing&&editing!=='new'&&!busy)$('card-logo-input').click()};
+  $('card-logo-input').addEventListener('change',()=>{
+   const file=$('card-logo-input').files?.[0];$('card-logo-input').value='';
+   const problem=crop.checkLogo(file);if(problem){message(problem);return}
+   const row=cards.find(c=>c.id===editing);if(!row)return;
+   void run(async e=>{
+    message('Preparing your logo…');
+    const bitmap=await crop.decode(file);
+    let out;try{out=await crop.encodeLogo(bitmap)}finally{bitmap.close?.()}
+    const path=await images.upload(client,row.id,'logo',out.blob,out.ext);
+    if(e!==epoch){try{await images.remove(client,[path])}catch{}return}
+    await discardStaged('logo');
+    media.logo={...media.logo,staged:path,url:URL.createObjectURL(out.blob)};dirty=true;renderEditorPreview();
+    message('Logo ready. Choose Save card to keep it.');
+   });
+  });
+  $('card-logo-remove').onclick=()=>{
+   if(busy)return;
+   void (async()=>{await discardStaged('logo');media.logo={...media.logo,staged:media.logo.original?null:undefined};dirty=true;renderEditorPreview();message(media.logo.original?'Logo will be removed when you choose Save card.':'')})();
   };
  }
 
- $('card-editor').addEventListener('input',e=>{if(e.target?.id==='card-photo-zoom'||e.target?.id==='card-photo-input')return;dirty=true;renderEditorPreview()});
+ $('card-editor').addEventListener('input',e=>{if(['card-photo-zoom','card-photo-input','card-logo-input'].includes(e.target?.id))return;dirty=true;renderEditorPreview()});
  $('multi-fullName').addEventListener('input',()=>{if(editing==='new'&&!$('multi-slug').dataset.touched)$('multi-slug').value=slugFrom($('multi-fullName').value)});
  $('multi-slug').addEventListener('input',()=>{$('multi-slug').dataset.touched='1'});
  $('card-create').onclick=()=>openEditor(null);
@@ -174,7 +205,7 @@
  // Publishing is its own step, confirmed in the page, after the person has seen their saved card.
  $('card-publish').onclick=async()=>{
   const row=selected;if(!row||row.published||busy)return;
-  if(!await ask('Publish this card? Its name, photo, contact details, introduction and links will be visible to anyone with its link or QR code.',{confirmLabel:'Publish'}))return;
+  if(!await ask('Publish this card? Its name, photo, logo, contact details, introduction and links will be visible to anyone with its link or QR code.',{confirmLabel:'Publish'}))return;
   if(selected!==row)return;
   void run(async e=>{
    const {data,error}=await client.from('public_cards').update({published:true,revision:Number(row.revision)+1,updated_at:new Date().toISOString()}).eq('id',row.id).eq('owner_id',user.id).eq('revision',row.revision).select('*').maybeSingle();
@@ -195,20 +226,20 @@
   const site=values.website;if(site&&!view.web(site)){message('Enter a website such as example.com.');return}
   const invalid=tools.validate(label,slug,values);if(invalid){message(invalid);return}
   const published=row?$('multi-published').checked:false;
-  const edits={...tools.toRow(values),card_label:label,appearance,...(row&&photoChanged()?{photo_path:photo.staged||null}:{})};
+  const edits={...tools.toRow(values),card_label:label,appearance,...(row?imageEdits():{})};
   // Making a published card private also renames its images, so links made while it was public stop working.
   if(row&&row.published&&!published&&images){
    void run(async e=>{
     message('Making your card private…');
     let current=row;
-    // A photo change is saved first (the card stays public), then the card is made private with the new photo.
-    if(photoChanged()){
-     const {data,error}=await client.from('public_cards').update({photo_path:photo.staged||null,revision:Number(row.revision)+1,updated_at:new Date().toISOString()}).eq('id',row.id).eq('owner_id',user.id).eq('revision',row.revision).select('*').maybeSingle();
+    // Photo and logo changes are saved first (the card stays public), then the card is made private with them.
+    if(KINDS.some(changed)){
+     const {data,error}=await client.from('public_cards').update({...imageEdits(),revision:Number(row.revision)+1,updated_at:new Date().toISOString()}).eq('id',row.id).eq('owner_id',user.id).eq('revision',row.revision).select('*').maybeSingle();
      if(e!==epoch)return;if(error)throw error;
      if(!data){message('This card was changed on another device. It’s still public, and nothing was changed.');return}
-     current=data;photo={original:data.photo_path,staged:undefined,url:null};
+     current=data;media={photo:blank(data.photo_path),logo:blank(data.logo_path)};
     }
-    const {photo_path:_ignored,...rest}=edits;
+    const {photo_path:_p,logo_path:_l,...rest}=edits;
     const result=await images.makePrivate(client,user.id,current,rest);
     if(e!==epoch)return;
     if(!result.changed){message(result.conflict?'This card was changed on another device. It’s still public, and nothing was changed.':'Your card couldn’t be made private, so it’s still public. Check your connection and try again.');if(current!==row)await listCards();return}
@@ -226,8 +257,8 @@
     :client.from('public_cards').insert({...payload,published:false,owner_id:user.id,slug}).select('*').single();
    const {data,error}=await query;if(e!==epoch)return;if(error)throw error;
    if(!data){message('This card was changed on another device. Nothing was overwritten, and your changes are still in the form.');return}
-   if(row&&photoChanged()){await dropReplaced(photo.original,data.photo_path);if(photo.url)URL.revokeObjectURL?.(photo.url)}
-   photo={original:data.photo_path||null,staged:undefined,url:null};
+   if(row)for(const kind of KINDS)if(changed(kind)){await dropReplaced(media[kind].original,data[COLUMN[kind]]);if(media[kind].url)URL.revokeObjectURL?.(media[kind].url)}
+   media={photo:blank(data.photo_path),logo:blank(data.logo_path)};
    selected=data;editing=null;dirty=false;$('multi-slug').dataset.touched='';
    await listCards();if(e===epoch){message(!row?'Draft saved. Review your card, then choose Review and publish.':published?'Saved. Your card is public.':'Saved. Your card is private.');window.dispatchEvent(new Event('vale-cards-changed'))}
   });
@@ -248,7 +279,7 @@
   const row=cards.find(c=>c.id===editing);if(!row||busy)return;
   if(!$('card-delete-understand').checked){message('Tick the box to confirm. Nothing was deleted.');return}
   void run(async e=>{
-   await discardStaged();
+   await discardAll();
    const current=await removeCardImages(row);if(e!==epoch)return;
    if(!current){message('This card was changed on another device. Nothing was deleted.');return}
    const {data,error}=await client.from('public_cards').delete().eq('id',current.id).eq('owner_id',user.id).eq('revision',current.revision).select('id').maybeSingle();
@@ -262,7 +293,7 @@
  window.addEventListener('vale-account-ready',event=>{
   const next=event.detail;if(user?.id===next.user?.id&&client===next.client)return;
   epoch++;client=next.client;user=next.user;cards=[];selected=null;editing=null;dirty=false;busy=false;loaded=false;message('');
-  closeCropper();for(const url of shown.values())if(url)URL.revokeObjectURL?.(url);shown.clear();photo={original:null,staged:undefined,url:null};
+  closeCropper();for(const url of shown.values())if(url)URL.revokeObjectURL?.(url);shown.clear();media={photo:blank(),logo:blank()};
   fields.forEach(k=>{$('multi-'+k).value=''});render();announce();
   if(user)void run(async()=>{await listCards()});
  });

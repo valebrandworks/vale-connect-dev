@@ -93,7 +93,9 @@ details>summary{cursor:pointer;color:var(--ivory-2);font-weight:600;padding:6px 
 .vcard[data-preset=slate]{--c-bg1:#2f3740;--c-bg2:#242b33;--c-border:#c9a45c55;--c-text:#f1f1ee;--c-role:#e3cf9f;--c-muted:#c9ced4;--c-mark:#d9bf87;--c-photo-bg:#38404a;--c-photo-ring:#c9a45c;--c-pill-border:#ffffff33;--c-pill-bg:#ffffff08;--c-icon:#e3cf9f}
 .vcard:after{content:'';position:absolute;inset:0;border-radius:20px;pointer-events:none;box-shadow:inset 0 1px 0 #ffffff10}
 .vcard .mark{font-size:10px;letter-spacing:.3em;color:var(--c-mark)}
-.vcard .logo{position:absolute;top:18px;right:18px;width:44px;height:44px;border-radius:10px;object-fit:contain;background:#fff}
+.vcard .logo{position:absolute;top:16px;right:16px;width:52px;height:52px;padding:5px;border-radius:12px;object-fit:contain;background:#fff;box-shadow:0 2px 8px #0003}
+.vcard.has-logo .head{margin-top:30px}
+.vcard.has-logo .head>div:last-child{padding-right:4px}
 .vcard .head{display:flex;gap:14px;align-items:center;margin-top:16px}
 .vcard .photo{flex:none;width:72px;height:72px;border-radius:50%;object-fit:cover;border:2px solid var(--c-photo-ring);background:var(--c-photo-bg);display:grid;place-items:center;color:var(--c-role);font-size:24px;font-weight:600}
 .vcard .name{font-size:22px;font-weight:600;line-height:1.2;overflow-wrap:anywhere}
@@ -121,6 +123,8 @@ details>summary{cursor:pointer;color:var(--ivory-2);font-weight:600;padding:6px 
 .photo-row{display:flex;align-items:center;gap:14px}
 .photo-thumb{flex:none;width:64px;height:64px;border-radius:50%;background:#2a2620;border:1px solid #c9a45c66;display:grid;place-items:center;color:var(--gold-soft);font-weight:600;overflow:hidden}
 .photo-thumb img{width:100%;height:100%;object-fit:cover}
+.logo-thumb{border-radius:12px;background:#fff;border-color:#d8cfbf;color:#8a8070;font-size:11px;font-weight:600}
+.logo-thumb img{object-fit:contain;padding:6px}
 .cropper{margin-top:12px}
 .crop-frame{position:relative;width:min(100%,320px);aspect-ratio:1;margin:0 auto;overflow:hidden;border-radius:14px;touch-action:none}
 .crop-frame canvas{display:block;width:100%;height:100%;cursor:grab}

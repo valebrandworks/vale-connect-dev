@@ -49,6 +49,25 @@
   if(!out)throw Error('This browser couldn’t prepare the photo.');
   return {blob:out,ext:'jpg'};
  }
- const api={OUTPUT,MAX_ZOOM,state,clamp,pan,zoomTo,source,check,decode,draw,encode};
+ // Logos keep their shape and transparency: scaled down to fit within 512 px (never enlarged).
+ function fitSize(width,height,max=OUTPUT){const k=Math.min(1,max/Math.max(width,height));return {width:Math.max(1,Math.round(width*k)),height:Math.max(1,Math.round(height*k))}}
+ function checkLogo(file){
+  if(!file)return 'Choose a logo.';
+  if(file.size>MAX_INPUT_BYTES)return 'That file is too large. Choose a logo under 20 MB.';
+  if(!/^image\/(png|jpeg|webp)$/.test(file.type||''))return 'Choose a PNG, JPG or WebP logo. PNG keeps a transparent background.';
+  return '';
+ }
+ // WebP keeps transparency; where the browser can't make WebP, PNG does. Returns {blob, ext, width, height}.
+ async function encodeLogo(bitmap,doc=root.document){
+  const size=fitSize(bitmap.width,bitmap.height),c=doc.createElement('canvas');c.width=size.width;c.height=size.height;
+  const ctx=c.getContext('2d');ctx.imageSmoothingQuality='high';ctx.clearRect(0,0,c.width,c.height);ctx.drawImage(bitmap,0,0,c.width,c.height);
+  const blob=(type,q)=>new Promise(res=>c.toBlob(res,type,q));
+  let out=await blob('image/webp',0.9);
+  if(out&&out.type==='image/webp')return {blob:out,ext:'webp',...size};
+  out=await blob('image/png');
+  if(!out)throw Error('This browser couldn\u2019t prepare the logo.');
+  return {blob:out,ext:'png',...size};
+ }
+ const api={OUTPUT,MAX_ZOOM,state,clamp,pan,zoomTo,source,check,decode,draw,encode,fitSize,checkLogo,encodeLogo};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValePhotoCrop=api;
 })(typeof window!=='undefined'?window:globalThis);

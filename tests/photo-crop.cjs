@@ -18,6 +18,13 @@ assert.equal(crop.zoomTo(s,99).zoom,crop.MAX_ZOOM);assert.equal(crop.zoomTo(s,0)
 for(const [w,h] of [[3000,4000],[640,480],[513,4000]]){let t=crop.state(w,h,560);for(const z of [1,1.7,4])for(const [dx,dy] of [[-9999,0],[9999,9999],[123,-77]]){t=crop.pan(crop.zoomTo(t,z),dx,dy);const q=crop.source(t);assert.ok(q.x>=-1e-6&&q.y>=-1e-6&&q.x+q.size<=w+1e-6&&q.y+q.size<=h+1e-6,`${w}x${h} z${z}`)}}
 // Input checks.
 assert.equal(crop.check(null),'Choose a photo.');assert.match(crop.check({size:25*1024*1024,type:'image/jpeg'}),/under 20 MB/);assert.match(crop.check({size:10,type:'application/pdf'}),/Choose a photo/);assert.equal(crop.check({size:10,type:'image/heic'}),'');
+// Logos keep their proportions, fit within 512 px, and are never enlarged.
+assert.deepEqual(crop.fitSize(2000,500),{width:512,height:128});assert.deepEqual(crop.fitSize(600,1800),{width:171,height:512});
+assert.deepEqual(crop.fitSize(120,40),{width:120,height:40});assert.deepEqual(crop.fitSize(512,512),{width:512,height:512});assert.deepEqual(crop.fitSize(5000,1),{width:512,height:1});
+// Logo files: PNG, JPEG or WebP only. SVG (which can carry code) and anything unidentified are refused.
+for(const type of ['image/png','image/jpeg','image/webp'])assert.equal(crop.checkLogo({size:10,type}),'',type);
+for(const type of ['image/svg+xml','image/heic','image/gif','text/html','',undefined])assert.match(crop.checkLogo({size:10,type}),/PNG, JPG or WebP/,String(type));
+assert.equal(crop.checkLogo(null),'Choose a logo.');assert.match(crop.checkLogo({size:21*1024*1024,type:'image/png'}),/under 20 MB/);
 // Contact files: a JPEG photo line, folded to 75 characters, only for valid base64.
 const v=tools.vcard({fullName:'Ana'},'QUJD'.repeat(60)).split('\r\n');
 const photoAt=v.findIndex(l=>l.startsWith('PHOTO;ENCODING=b;TYPE=JPEG:'));assert.ok(photoAt>0);
