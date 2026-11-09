@@ -37,7 +37,11 @@ function page(search){
  assert.ok(p.get('share-qr').children.some(c=>c.tagName==='canvas'),'QR drawn');
  await p.get('share-copy').onclick();assert.deepEqual(p.calls.copy,['https://dev.valebrandworks.com/p.html?u=ana-ruiz-1a2b3c']);
  await p.get('share-native').onclick();assert.equal(p.calls.share[0].url,'https://dev.valebrandworks.com/p.html?u=ana-ruiz-1a2b3c');
- p.get('share-vcf').onclick();assert.match(p.calls.downloads[0].parts[0],/FN:Ana Ruiz/);
+ // Contact files wait for the card's photo, if any; this card has none, so no PHOTO line.
+ p.window.ValeCards={contactPhoto:async()=>''};p.get('share-vcf').onclick();for(let i=0;i<5;i++)await new Promise(r=>setImmediate(r));
+ assert.match(p.calls.downloads[0].parts[0],/FN:Ana Ruiz/);assert.doesNotMatch(p.calls.downloads[0].parts[0],/PHOTO/);
+ p.window.ValeCards={contactPhoto:async()=>'QUJD'};p.get('card-vcf').onclick();for(let i=0;i<5;i++)await new Promise(r=>setImmediate(r));
+ assert.match(p.calls.downloads[1].parts[0],/\r\nPHOTO;ENCODING=b;TYPE=JPEG:QUJD\r\nEND:VCARD$/,'the card photo goes into the contact file');
  // The Card tab's Share button opens the Share tab.
  p.get('card-share').onclick();assert.equal(p.get('tab-share').hidden,false);assert.equal(p.get('tab-card').hidden,true);
  // Older long-format links still open, read-only, with save options.

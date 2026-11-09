@@ -26,7 +26,9 @@
   canvas.setAttribute('role','img');canvas.setAttribute('aria-label','QR code that opens this card');host.append(canvas);return canvas;
  }
  function download(name,blob){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
- function saveContact(values,slug){download((slug||'vale-connect-contact')+'.vcf',new Blob([tools.vcard(values)],{type:'text/vcard;charset=utf-8'}))}
+ function saveContact(values,slug,photo=''){download((slug||'vale-connect-contact')+'.vcf',new Blob([tools.vcard(values,photo)],{type:'text/vcard;charset=utf-8'}))}
+ // The card's photo goes into the contact file where it has one.
+ async function saveCardContact(card){let photo='';try{photo=await window.ValeCards?.contactPhoto?.(card)||''}catch{}saveContact(tools.toEditor(card),card.slug,photo)}
 
  // Share tab: only a saved, public card has a link.
  function renderShare(){
@@ -47,8 +49,8 @@
   else $('share-copy').click();
  };
  $('share-qr-save').onclick=()=>{const canvas=$('share-qr').querySelector('canvas');if(!canvas||!current.card)return;canvas.toBlob(blob=>blob&&download(current.card.slug+'-qr.png',blob))};
- $('share-vcf').onclick=()=>{if(current.card)saveContact(tools.toEditor(current.card),current.card.slug)};
- $('card-vcf').onclick=()=>{if(current.card)saveContact(tools.toEditor(current.card),current.card.slug)};
+ $('share-vcf').onclick=()=>{if(current.card)void saveCardContact(current.card)};
+ $('card-vcf').onclick=()=>{if(current.card)void saveCardContact(current.card)};
  $('card-share').onclick=()=>tab('share');
  window.addEventListener('vale-card-selected',event=>{current=event.detail;renderShare()});
 

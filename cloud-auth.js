@@ -40,6 +40,9 @@ $('cloud-delete-account').addEventListener('click',async()=>{
  msg('cloud-delete-status','Confirming it’s you…');$('cloud-delete-password').value='';$('cloud-delete-understand').checked=false;
  const {error:signInError}=await client.auth.signInWithPassword({email:accountEmail,password});
  if(signInError){msg('cloud-delete-status','That password wasn’t accepted. Nothing was deleted.');return}
+ // Card images are files, removed through storage first; the database refuses to delete an account while any remain.
+ msg('cloud-delete-status','Removing your card images…');
+ try{await window.ValeCards?.removeAllImages?.()}catch(error){msg('cloud-delete-status',(error.message||'Your card images couldn’t be removed.')+' Your account was not deleted.');return}
  const {error}=await client.rpc('delete_my_account',{confirm_email:email});
  if(error){msg('cloud-delete-status',error.message);return}
  await client.auth.signOut({scope:'local'});$('cloud-delete-email').value='';msg('cloud-delete-status','');msg('cloud-auth-status','Your account was deleted. Anything saved only in this browser is still here.');
