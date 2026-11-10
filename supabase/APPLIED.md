@@ -11,6 +11,8 @@ through its migration tooling; SQL run in the dashboard's SQL Editor isn't liste
 | `20261109010000_add_card_images_and_appearance.sql` | 2026-11-08, before 22:55 UTC | Run by the product owner in the SQL Editor, exactly as in this file, after a rolled-back dry run on development and a verified backup | No |
 | `20261109020000_add_reciprocal_sharing.sql` | 2026-11-09, 03:37 UTC | Applied through Supabase migration tooling (without the file's BEGIN/COMMIT, which the tooling adds), after a verified backup and a rolled-back dry run | Yes, as version `20261109033732` (`add_reciprocal_sharing`) |
 | `20261109030000_add_sharing_indexes.sql` | 2026-11-09, 04:54 UTC | Applied once through Supabase migration tooling (the file's four CREATE INDEX statements, without its BEGIN/COMMIT), after a verified backup and a rolled-back dry run | Yes, as version `20261109045438` (`add_sharing_indexes`) |
+| `20261110000000_hash_share_contact_keys.sql` | 2026-11-10, about 00:20 UTC | Applied once through Supabase migration tooling (without the file's BEGIN/COMMIT), after a verified backup (now including share records and notifications) and rolled-back dry runs | Yes |
+| `20261110000100_validate_share_contact_keys.sql` | 2026-11-10, about 00:21 UTC | Its two statements run as SQL with the founder's approval: the one existing readable rate-limit record was hashed in place, then the check validated | No |
 
 Verified after applying, on 2026-11-08 at 22:55 UTC:
 - Private `card-images` bucket: 1 MB limit; WebP, PNG and JPEG only.
@@ -33,6 +35,13 @@ Verified after applying the sharing indexes, on 2026-11-09 at about 04:58 UTC:
 - Existing cards and connections are unchanged (counts and fingerprints identical to before); sharing tables are still empty.
 
 The reverse is `supabase/rollback/20261109030000_add_sharing_indexes.down.sql`. It removes the four indexes only.
+
+Verified after hashing contact keys, on 2026-11-10:
+- The one rate-limit record is now a keyed hash, equal to what a new share stores; no readable contact keys remain, and the check covers every row.
+- The existing share, connection, consent record and notification are unchanged (row fingerprints identical before and after).
+- All 14 live test files pass, rolled back, including `share_contact_keys.sql`; the launch gate passes 10 of 10.
+
+The reverse is `supabase/rollback/20261110000000_hash_share_contact_keys.down.sql`.
 
 ## Production
 

@@ -165,6 +165,7 @@ let ckOld = false;
 try { await ckDb.exec(sql(CONTACT_KEYS)); } catch { ckOld = true; await ckDb.exec('ROLLBACK'); }
 report(ckOld, 'contact keys rollback: the privacy test notices readable keys are back');
 await ckDb.exec(sql(CK_UP));
+await ckDb.exec(sql('supabase/migrations/20261110000100_validate_share_contact_keys.sql'));
 report(JSON.stringify(await snapshotOf(ckDb)) === JSON.stringify(ckBefore), 'contact keys: re-applying after rollback restores the same structure');
 await ckDb.close();
 
