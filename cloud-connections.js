@@ -54,6 +54,8 @@
    const avatar=document.createElement('span'),who=document.createElement('span'),name=document.createElement('b'),sub=document.createElement('span');
    avatar.className='avatar';avatar.setAttribute('aria-hidden','true');avatar.textContent=String(row.full_name||'').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0].toUpperCase()).join('')||'·';
    who.className='who';name.textContent=row.full_name;
+   // Where it came from: someone shared their details from your card, or you've both shared.
+   if(row.mutual||row.source==='shared_back'){const tag=document.createElement('span');tag.className='pill public tag';tag.textContent=row.mutual?'Mutual':'Shared';name.append(' ',tag)}
    const due=row.follow_up_on&&row.next_step!=='Completed'&&row.follow_up_on<=today;
    sub.textContent=[row.business_name,row.follow_up_on&&row.next_step!=='Completed'?row.next_step+' · '+row.follow_up_on:''].filter(Boolean).join(' · ');if(due)sub.className='due';
    who.append(name,sub);b.append(avatar,who);
@@ -148,6 +150,13 @@ const importMessage=text=>{if($('import-status'))$('import-status').textContent=
  };
  function background(){if(user&&!busy&&!editing()&&!document.hidden&&navigator.onLine)void run(async()=>{await load()})}
  window.addEventListener('vale-usage-updated',()=>{controls();renderList()});
+ // "Shared with you" asks to open a connection.
+ window.addEventListener('vale-open-connection',async event=>{
+  const row=rows.find(r=>r.id===event.detail?.id);
+  if(!row){message('That connection isn’t in your list any more.');return}
+  if(!!row.archived_at!==($('cloud-contacts-view').value==='archived'))$('cloud-contacts-view').value=row.archived_at?'archived':'active';
+  if(await discard()){open=true;fill(row);$('cloud-contacts-editor').scrollIntoView?.({block:'start'})}
+ });
  window.addEventListener('focus',background);window.addEventListener('online',background);window.addEventListener('vale-cloud-connections-changed',background);document.addEventListener('visibilitychange',()=>{if(!document.hidden)background()});
  window.addEventListener('vale-account-ready',event=>{
   const next=event.detail;if(user?.id===next.user?.id&&client===next.client)return;

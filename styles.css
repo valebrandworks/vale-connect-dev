@@ -163,3 +163,32 @@ dialog.ask p{margin:0 0 16px;line-height:1.5}
 .status[data-tone=error]{color:var(--danger)}
 .share-done{color:var(--gold-soft)}
 .share-back:focus-within{border-color:#c9a45c55}
+
+/* Shared with you (Connections tab) */
+.nav button{position:relative}
+.nav-badge{position:absolute;top:2px;left:calc(50% + 6px);min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--gold);color:var(--gold-ink);font-size:11px;font-weight:700;line-height:18px;text-align:center}
+@media(min-width:860px){.nav-badge{position:static;margin-left:4px}}
+.inbox{margin:4px 0 14px}
+.inbox .section-title{margin:0 0 6px}
+.inbox h2{font-size:17px;display:flex;align-items:center;gap:8px}
+.small-btn{min-height:36px;padding:6px 10px;font-size:13px}
+.inbox-list{list-style:none;margin:0;padding:0}
+.inbox-item{padding:12px 0;border-bottom:1px solid var(--line)}
+.inbox-item:last-child{border-bottom:0}
+.inbox-row{display:flex;align-items:center;gap:12px}
+.inbox-who{flex:1;min-width:0}
+.inbox-who b{display:block;font-weight:600;overflow-wrap:anywhere}
+.inbox-who .muted{display:block}
+.inbox-item.unread .inbox-who b{color:var(--ivory)}
+.dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--gold)}
+.inbox-status{font-size:13px;color:var(--ivory-2);margin:8px 0 0}
+.inbox-note{font-size:13px;color:var(--muted);font-style:italic;margin:4px 0 0;overflow-wrap:anywhere}
+.inbox-item details{margin-top:6px}
+.inbox-item summary{font-size:13px;padding:4px 0}
+.inbox-details{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:6px 0 0;font-size:13px}
+.inbox-details dt{color:var(--muted)}
+.inbox-details dd{margin:0;overflow-wrap:anywhere}
+.inbox-item .actions{margin-top:10px}
+.pill.tag{font-size:11px;padding:1px 8px;margin-left:6px;vertical-align:middle}
+
+.list-row .who b .tag{display:inline-flex;width:auto;font-size:11px;color:var(--gold-soft);white-space:nowrap}
