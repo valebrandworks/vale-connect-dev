@@ -1,17 +1,19 @@
 // Builds the database from the repository in a temporary in-memory Postgres (PGlite).
 // Nothing here connects to Supabase or any other remote database.
 import { PGlite } from '@electric-sql/pglite';
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
 // Imitates the parts of a Supabase project the database files rely on, including its
 // default privileges on new public tables, as recorded in the structure snapshot.
 const SUPABASE_STUB = `
+ CREATE SCHEMA extensions; -- Supabase keeps extensions such as pgcrypto here.
  CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS;
  CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, email text);
  CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claims',true)::json->>'sub','')::uuid $$;
  CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb,'{}'::jsonb) $$;
- GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
+ GRANT USAGE ON SCHEMA public, auth, extensions TO anon, authenticated, service_role;
  GRANT EXECUTE ON FUNCTION auth.uid(), auth.jwt() TO anon, authenticated, service_role;
  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON TABLES TO anon, authenticated, service_role;
  ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
@@ -25,7 +27,7 @@ const SUPABASE_STUB = `
  GRANT EXECUTE ON FUNCTION storage.foldername(text) TO anon, authenticated;`;
 
 export async function rebuild(repo) {
-  const db = new PGlite();
+  const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(SUPABASE_STUB);
   await db.exec(fs.readFileSync(path.join(repo, 'supabase/baseline/00_objects_before_migrations.sql'), 'utf8'));
   const dir = path.join(repo, 'supabase/migrations');
