@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -48,12 +48,21 @@ const draftsLine = "  IF NEW.published THEN RAISE EXCEPTION 'New cards start as 
 if (rulesStart < 0 || rulesEnd < 8 || !cardRules.slice(rulesStart, rulesEnd).includes(draftsLine)) throw new Error('Card rules function not found for the drafts-first check');
 const draftsOff = cardRules.slice(rulesStart, rulesEnd).replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION').replace(draftsLine, '');
 // record_share with one rule removed, to prove the sharing tests notice.
-const sharingSql = sql('supabase/migrations/20261109020000_add_reciprocal_sharing.sql').replace(/\r\n/g, '\n');
-const shareStart = sharingSql.indexOf('CREATE FUNCTION public.record_share('), shareEnd = sharingSql.indexOf('\nEND $$;', shareStart) + 8;
+// Taken from the newest migration that defines it, so a sabotaged copy never quietly undoes a later fix.
+const shareFile = fs.readdirSync(path.join(repo, 'supabase/migrations')).filter(f => f.endsWith('.sql')).sort().reverse()
+  .find(f => /CREATE (OR REPLACE )?FUNCTION public\.record_share\(/.test(sql('supabase/migrations/' + f)));
+const sharingSql = sql('supabase/migrations/' + shareFile).replace(/\r\n/g, '\n');
+const shareStart = sharingSql.search(/CREATE (OR REPLACE )?FUNCTION public\.record_share\(/), shareEnd = sharingSql.indexOf('\nEND $$;', shareStart) + 8;
 if (shareStart < 0 || shareEnd < 8) throw new Error('record_share not found for the sharing checks');
-const recordShare = sharingSql.slice(shareStart, shareEnd).replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION');
+const recordShare = sharingSql.slice(shareStart, shareEnd).replace(/^CREATE FUNCTION/, 'CREATE OR REPLACE FUNCTION');
 const withoutRule = (find, replace = '') => { if (!recordShare.includes(find)) throw new Error('Sharing rule not found: ' + find); return recordShare.replace(find, replace); };
 const brokenRules = [
+  ['contact keys: readable contact stored', CONTACT_KEYS, "ALTER TABLE public.share_attempts DROP CONSTRAINT share_attempts_contact_key_hashed; CREATE OR REPLACE FUNCTION vale_private.share_contact_key(p_contact text) RETURNS text LANGUAGE sql AS 'SELECT p_contact'"],
+  ['contact keys: hash without a key', CONTACT_KEYS, "CREATE OR REPLACE FUNCTION vale_private.share_contact_key(p_contact text) RETURNS text LANGUAGE sql AS $f$ SELECT 'h1:' || encode(sha256(convert_to(p_contact, 'UTF8')), 'hex') $f$"],
+  ['contact keys: email not normalised before hashing', CONTACT_KEYS, withoutRule("v_email := lower(v->>'email');", "v_email := v->>'email';")],
+  ['contact keys: limit compares the readable value', CONTACT_KEYS, withoutRule('a.contact_key = v_contact_key', 'a.contact_key = v_contact')],
+  ['contact keys: hashing key readable by the server role', CONTACT_KEYS, 'GRANT SELECT ON vale_private.share_keys TO service_role'],
+  ['contact keys: missing key skips the limit', CONTACT_KEYS, "CREATE OR REPLACE FUNCTION vale_private.share_contact_key(p_contact text) RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path TO '' AS $f$ SELECT 'h1:' || encode(extensions.hmac(convert_to(p_contact, 'UTF8'), (SELECT key FROM vale_private.share_keys WHERE name = 'contact'), 'sha256'), 'hex') $f$"],
   ['share back: visitors can change the switch', SHARE_BACK, 'GRANT SELECT, UPDATE ON public.public_cards TO anon; CREATE POLICY anon_read ON public.public_cards FOR SELECT TO anon USING (true); CREATE POLICY anon_update ON public.public_cards FOR UPDATE TO anon USING (true) WITH CHECK (true)'],
   ['share back: any account can change the switch', SHARE_BACK, 'DROP POLICY public_cards_select_own ON public.public_cards; CREATE POLICY s ON public.public_cards FOR SELECT TO authenticated USING (true); DROP POLICY "Users can update their own cards" ON public.public_cards; CREATE POLICY open_update ON public.public_cards FOR UPDATE TO authenticated USING (true) WITH CHECK (true)'],
   ['share back: off by default', SHARE_BACK, 'ALTER TABLE public.public_cards ALTER COLUMN accept_shares SET DEFAULT false'],
@@ -144,6 +153,20 @@ report(flagged, 'indexes rollback: the index test notices they are gone');
 await withIndexes.exec(sql(SHARING_INDEX_SQL));
 report(JSON.stringify(await snapshotOf(withIndexes)) === JSON.stringify(before), 'indexes: re-applying after rollback restores the same structure');
 await withIndexes.close();
+
+// The contact-key change reverses cleanly and re-applies to the same structure.
+const CK_UP = 'supabase/migrations/20261110000000_hash_share_contact_keys.sql', CK_DOWN = 'supabase/rollback/20261110000000_hash_share_contact_keys.down.sql';
+const ckDb = await rebuild(repo);
+const ckBefore = await snapshotOf(ckDb);
+await ckDb.exec(sql(CK_DOWN));
+const ckDown = await snapshotOf(ckDb);
+report(!ckDown.functions.some(f => f.signature.includes('share_contact_key')) && !ckDown.constraints.some(c => c.name === 'share_attempts_contact_key_hashed'), 'contact keys rollback: removes the hash function and the check');
+let ckOld = false;
+try { await ckDb.exec(sql(CONTACT_KEYS)); } catch { ckOld = true; await ckDb.exec('ROLLBACK'); }
+report(ckOld, 'contact keys rollback: the privacy test notices readable keys are back');
+await ckDb.exec(sql(CK_UP));
+report(JSON.stringify(await snapshotOf(ckDb)) === JSON.stringify(ckBefore), 'contact keys: re-applying after rollback restores the same structure');
+await ckDb.close();
 
 // The launch gate passes on the finished design and fails if a protection is missing.
 const gateRows = async database => (await database.query(sql('supabase/inspection/launch_gate.sql'))).rows;
