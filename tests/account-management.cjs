@@ -33,7 +33,7 @@ async function accountDeletion(){
  const client={auth:{getUser:async()=>({data:{user:null}}),onAuthStateChange:fn=>auth=fn,signInWithPassword:async c=>{order.push('signin:'+c.email);return {error:signInError}},signOut:async o=>{order.push('signout:'+o?.scope);return {error:null}}},rpc:async(n,a)=>{order.push(n+':'+a.confirm_email);return {error:rpcError}},from(){return {select(){return this},eq(){return this},maybeSingle:async()=>({data:null})}}};
  let imagesFail=false;
  const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){},ValeCards:{removeAllImages:async()=>{order.push('images');if(imagesFail)throw Error('A card changed on another device. Nothing was deleted. Try again.')}}},document:{getElementById:get,addEventListener(){},hidden:false},localStorage:{getItem:()=>null,setItem(){}},setInterval:()=>1,clearInterval(){},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},confirm:()=>{throw new Error('account deletion must not depend on a browser dialog')},location:{origin:'https://dev.valebrandworks.com',pathname:'/'}};
- vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-auth.js'),'utf8'),context);await settle();
+ vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'auth-core.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-auth.js'),'utf8'),context);await settle();
  const click=()=>get('cloud-delete-account').handlers.click(),status=()=>get('cloud-delete-status').textContent;
  await click();assert.equal(order.length,0,'nothing while signed out');
  auth('SIGNED_IN',{user:{id:'a',email:'Owner@example.invalid'}});await settle();

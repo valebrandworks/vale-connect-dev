@@ -14,7 +14,7 @@ async function signInOrder(){
   const {get,document}=dom();let authCallback,resolveInitial;
   const client={auth:{getUser:()=>new Promise(r=>resolveInitial=r),onAuthStateChange:fn=>authCallback=fn}};
   const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){}},document,CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},location:{origin:'https://dev.valebrandworks.com',pathname:'/'}};
-  vm.createContext(context);vm.runInContext(read('cloud-auth.js'),context);
+  vm.createContext(context);vm.runInContext(read('auth-core.js'),context);vm.runInContext(read('cloud-auth.js'),context);
   authCallback(next?'SIGNED_IN':'SIGNED_OUT',next?{user:{id:next,email:next+'@example.invalid'}}:null);
   resolveInitial({data:{user:{id:'a',email:'a@example.invalid'}}});await settle();
   assert.equal(get('cloud-session').textContent,next?'b@example.invalid':'Not signed in');
