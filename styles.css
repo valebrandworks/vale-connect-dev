@@ -192,3 +192,16 @@ dialog.ask p{margin:0 0 16px;line-height:1.5}
 .pill.tag{font-size:11px;padding:1px 8px;margin-left:6px;vertical-align:middle}
 
 .list-row .who b .tag{display:inline-flex;width:auto;font-size:11px;color:var(--gold-soft);white-space:nowrap}
+
+/* Account sign-in, sign-up and recovery */
+.auth-form .password-row{display:flex;gap:8px;align-items:stretch}
+.auth-form .password-row input{flex:1;min-width:0}
+.btn.reveal{min-width:68px;padding:10px 12px;font-size:13px}
+.auth-form .check{margin-top:16px;font-size:13px;line-height:1.5;color:var(--ivory-2)}
+.auth-form .check input{width:20px;height:20px;flex:none;margin-top:1px}
+.auth-check{margin-top:16px}
+.auth-check:empty{margin-top:0}
+.auth-links{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin-top:12px}
+.link-btn{background:none;border:0;padding:10px 2px;min-height:44px;color:var(--gold-soft);font-weight:600;font-size:14px;text-decoration:underline;text-underline-offset:3px}
+.link-btn:hover{color:var(--gold)}
+

@@ -7,7 +7,7 @@ function harness(result={error:null}){
  const calls={reset:[],update:[]};let auth,clicked=0;
  const client={auth:{getUser:async()=>({data:{user:null}}),onAuthStateChange:fn=>auth=fn,resetPasswordForEmail:async(email,o)=>{calls.reset.push({email,...o});return result},updateUser:async u=>{calls.update.push(u);return result}},from(){return {select(){return this},eq(){return this},maybeSingle:async()=>({data:null})}}};
  const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){}},document:{getElementById:get,addEventListener(){},hidden:false,querySelector:()=>({click(){clicked++}})},localStorage:{getItem:()=>null,setItem(){}},setInterval:()=>1,clearInterval(){},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},confirm:()=>true,location:{origin:'https://dev.valebrandworks.com',pathname:'/'}};
- vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-auth.js'),'utf8'),context);
+ vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'auth-core.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-auth.js'),'utf8'),context);
  return {get,calls,clicked:()=>clicked,event:(name,user)=>auth(name,user?{user}:null)};
 }
 (async()=>{
@@ -21,12 +21,12 @@ function harness(result={error:null}){
  // A recovery link opens the new password form on the account tab.
  h=harness();await settle();h.get('cloud-new-password').hidden=true;h.event('PASSWORD_RECOVERY',{id:'a',email:'a@example.invalid'});assert.equal(h.get('cloud-new-password').hidden,false);assert.equal(h.clicked(),1);
  const form=h.get('cloud-new-password'),submit=()=>form.handlers.submit({preventDefault(){}});
- h.get('cloud-new-password-value').value='short';await submit();assert.equal(h.calls.update.length,0);assert.match(h.get('cloud-auth-status').textContent,/at least 8/);
+ h.get('cloud-new-password-value').value='short';await submit();assert.equal(h.calls.update.length,0);assert.match(h.get('cloud-auth-status').textContent,/at least 10 characters/);
  h.get('cloud-new-password-value').value='Synthetic-Pass-1';h.get('cloud-new-password-confirm').value='Different-Pass-1';await submit();assert.equal(h.calls.update.length,0);assert.match(h.get('cloud-auth-status').textContent,/match/);
  h.get('cloud-new-password-confirm').value='Synthetic-Pass-1';await submit();assert.equal(h.calls.update[0].password,'Synthetic-Pass-1');assert.equal(form.hidden,true);assert.equal(h.get('cloud-new-password-value').value,'');assert.match(h.get('cloud-auth-status').textContent,/Password changed/);
  // Change password is only offered when signed in; short sign-up passwords are refused.
  h=harness();await settle();assert.equal(h.get('cloud-change-password').hidden,true);h.event('SIGNED_IN',{id:'a',email:'a@example.invalid'});assert.equal(h.get('cloud-change-password').hidden,false);h.event('SIGNED_OUT',null);assert.equal(h.get('cloud-change-password').hidden,true);
- h.get('cloud-email').value='synthetic@example.invalid';h.get('cloud-password').value='short';await h.get('cloud-signup').handlers.click();assert.match(h.get('cloud-auth-status').textContent,/at least 8/);
+ h.get('cloud-email').value='synthetic@example.invalid';h.get('cloud-password').value='short';await h.get('cloud-signup').handlers.click();assert.match(h.get('cloud-auth-status').textContent,/at least 10 characters/);
  // A browser reports its initial signed-out state through this event, before the first user check finishes.
  h=harness();await settle();h.get('account-home').hidden=false;h.event('INITIAL_SESSION',null);assert.equal(h.get('account-home').hidden,true);assert.equal(h.get('account-signed-out').hidden,false);assert.equal(h.get('cloud-session').textContent,'Not signed in');
  h.event('SIGNED_IN',{id:'a',email:'a@example.invalid'});assert.equal(h.get('account-home').hidden,false);assert.equal(h.get('account-signed-out').hidden,true);assert.equal(h.get('cloud-session').textContent,'a@example.invalid');
