@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -57,6 +57,9 @@ if (shareStart < 0 || shareEnd < 8) throw new Error('record_share not found for 
 const recordShare = sharingSql.slice(shareStart, shareEnd).replace(/^CREATE FUNCTION/, 'CREATE OR REPLACE FUNCTION');
 const withoutRule = (find, replace = '') => { if (!recordShare.includes(find)) throw new Error('Sharing rule not found: ' + find); return recordShare.replace(find, replace); };
 const brokenRules = [
+  ['unlimited: Free capped again', UNLIMITED, "UPDATE public.membership_plans SET max_active_connections = 1000 WHERE code = 'free'"],
+  ['unlimited: no rate limit on new connections', UNLIMITED, 'DELETE FROM public.connection_limits'],
+  ['unlimited: members can change the rate limits', UNLIMITED, 'GRANT SELECT, UPDATE ON public.connection_limits TO authenticated; CREATE POLICY open_limits ON public.connection_limits FOR ALL TO authenticated USING (true) WITH CHECK (true)'],
   ['contact keys: readable contact stored', CONTACT_KEYS, "ALTER TABLE public.share_attempts DROP CONSTRAINT share_attempts_contact_key_hashed; CREATE OR REPLACE FUNCTION vale_private.share_contact_key(p_contact text) RETURNS text LANGUAGE sql AS 'SELECT p_contact'"],
   ['contact keys: hash without a key', CONTACT_KEYS, "CREATE OR REPLACE FUNCTION vale_private.share_contact_key(p_contact text) RETURNS text LANGUAGE sql AS $f$ SELECT 'h1:' || encode(sha256(convert_to(p_contact, 'UTF8')), 'hex') $f$"],
   ['contact keys: email not normalised before hashing', CONTACT_KEYS, withoutRule("v_email := lower(v->>'email');", "v_email := v->>'email';")],
@@ -166,8 +169,24 @@ try { await ckDb.exec(sql(CONTACT_KEYS)); } catch { ckOld = true; await ckDb.exe
 report(ckOld, 'contact keys rollback: the privacy test notices readable keys are back');
 await ckDb.exec(sql(CK_UP));
 await ckDb.exec(sql('supabase/migrations/20261110000100_validate_share_contact_keys.sql'));
+await ckDb.exec(recordShare);   // later migrations redefine record_share; bring back its newest version
 report(JSON.stringify(await snapshotOf(ckDb)) === JSON.stringify(ckBefore), 'contact keys: re-applying after rollback restores the same structure');
 await ckDb.close();
+
+// Unlimited Free connections: the rollback restores the 1,000 limit exactly, and re-applying restores the same structure.
+const UC_UP = 'supabase/migrations/20261112000000_unlimited_free_connections.sql', UC_DOWN = 'supabase/rollback/20261112000000_unlimited_free_connections.down.sql';
+const ucDb = await rebuild(repo);
+const ucBefore = await snapshotOf(ucDb);
+await ucDb.exec(sql(UC_DOWN));
+const ucDown = await snapshotOf(ucDb);
+report((await ucDb.query(`SELECT max_active_connections AS m FROM public.membership_plans WHERE code = 'free'`)).rows[0].m === 1000, 'unlimited rollback: Free returns to 1,000');
+report(!ucDown.tables.some(t => t.name === 'connection_limits') && !ucDown.indexes.some(i => i.name === 'connections_owner_created_idx'), 'unlimited rollback: removes the rate-limit table and its index');
+let ucOld = false;
+try { await ucDb.exec(sql(UNLIMITED)); } catch { ucOld = true; await ucDb.exec('ROLLBACK'); }
+report(ucOld, 'unlimited rollback: the unlimited test notices the limit is back');
+await ucDb.exec(sql(UC_UP));
+report(JSON.stringify(await snapshotOf(ucDb)) === JSON.stringify(ucBefore), 'unlimited: re-applying after rollback restores the same structure');
+await ucDb.close();
 
 // The launch gate passes on the finished design and fails if a protection is missing.
 const gateRows = async database => (await database.query(sql('supabase/inspection/launch_gate.sql'))).rows;

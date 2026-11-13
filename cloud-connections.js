@@ -4,6 +4,7 @@
  const $=id=>document.getElementById(id),core=window.ValeCloudConnections,local=window.ValeConnections;
  if(!$('cloud-connections')||!core||!local)return;
  let client=null,user=null,rows=[],selected=null,dirty=false,busy=false,epoch=0,timer=null,open=false;
+ const PAGE=200;let pageLimit=PAGE,pageKey='';
  const ask=(text,options)=>window.ValeAsk?window.ValeAsk(text,options):Promise.resolve(confirm(text));
  const fields=Object.keys(core.fields),message=text=>{$('cloud-contacts-status').textContent=text};
  const values=()=>({...Object.fromEntries(fields.map(k=>[k,$('cloud-'+k).value])),history:selected?structuredClone(selected.history):[]});
@@ -47,9 +48,11 @@
  }
  function renderList(){
   const list=$('cloud-contacts-list');list.replaceChildren();const showArchived=$('cloud-contacts-view').value==='archived',filters={query:$('cloud-contacts-search').value,category:$('cloud-contacts-category').value,followUp:$('cloud-contacts-followup').value,today:new Date().toLocaleDateString('en-CA'),advanced:allowed('advanced_search')},filtering=!!(String(filters.query).trim()||(filters.advanced&&(filters.category||filters.followUp))),visible=rows.filter(row=>(showArchived?!!row.archived_at:!row.archived_at)&&core.matches(row,filters));$('cloud-contacts-count').textContent=String(visible.length);
+  // Large lists: search and filters cover every connection; the screen shows them 200 at a time.
+  const key=JSON.stringify([showArchived,filters.query,filters.category,filters.followUp]);if(key!==pageKey){pageKey=key;pageLimit=PAGE}
   if(!visible.length){const p=document.createElement('p');p.className='muted';p.textContent=filtering?'No connections match your search.':showArchived?'No archived connections.':'No connections yet. Add someone you’ve met, or save a card someone shares with you.';list.append(p)}
   const today=new Date().toLocaleDateString('en-CA');
-  for(const row of visible){
+  for(const row of visible.slice(0,pageLimit)){
    const b=document.createElement('button');b.type='button';b.className='list-row';b.disabled=busy;
    const avatar=document.createElement('span'),who=document.createElement('span'),name=document.createElement('b'),sub=document.createElement('span');
    avatar.className='avatar';avatar.setAttribute('aria-hidden','true');avatar.textContent=String(row.full_name||'').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0].toUpperCase()).join('')||'·';
@@ -61,6 +64,7 @@
    who.append(name,sub);b.append(avatar,who);
    b.setAttribute('aria-pressed',String(row.id===selected?.id));b.onclick=async()=>{if(await discard()){open=true;fill(row)}};list.append(b);
   }
+  if(visible.length>pageLimit){const more=document.createElement('button');more.type='button';more.className='btn ghost block';more.id='cloud-contacts-more';more.textContent='Show '+Math.min(PAGE,visible.length-pageLimit)+' more of '+(visible.length-pageLimit)+' remaining';more.onclick=()=>{pageLimit+=PAGE;renderList()};list.append(more)}
  }
  async function load(){
   const e=epoch,owner=user.id,data=await core.list(client,owner,()=>e===epoch&&owner===user?.id);if(e!==epoch||owner!==user?.id)return false;
@@ -137,15 +141,15 @@ const importMessage=text=>{if($('import-status'))$('import-status').textContent=
   if(chosen.length>50){importMessage('Import at most 50 connections at a time.');return}
   if(!await ask('Add '+chosen.length+' selected connections to '+user.email+'? Existing connections and notes are kept.',{confirmLabel:'Import'}))return;
   void run(async e=>{
-   let added=0,skipped=0,failed=0;const owner=user.id,api=client;
+   let added=0,skipped=0,failed=0,paused='';const owner=user.id,api=client;
    for(const contact of chosen){
     if(e!==epoch)return;
     if(core.duplicate(rows,contact)?.exact){skipped++;continue}
     try{const row=await core.create(api,owner,contact);if(e!==epoch)return;rows.push(row);added++}
-    catch(error){if(error.code==='23505')skipped++;else failed++}
+    catch(error){if(error.code==='23505')skipped++;else if(core.isRateLimit?.(error)){paused=error.message;break}else failed++}
    }
    if(e!==epoch)return;await load();if(e!==epoch)return;
-   $('cloud-import-panel').hidden=true;window.ValeUsage?.refresh();importMessage('Imported '+added+'. Already saved: '+skipped+'. Failed: '+failed+'. The browser copies were kept.');window.dispatchEvent(new Event('vale-browser-import-done'));
+   $('cloud-import-panel').hidden=true;window.ValeUsage?.refresh();importMessage('Imported '+added+'. Already saved: '+skipped+'. Failed: '+failed+'. The browser copies were kept.'+(paused?' '+paused+' Review and import again later to add the rest; anything already saved is skipped.':''));window.dispatchEvent(new Event('vale-browser-import-done'));
   });
  };
  function background(){if(user&&!busy&&!editing()&&!document.hidden&&navigator.onLine)void run(async()=>{await load()})}
@@ -163,7 +167,8 @@ const importMessage=text=>{if($('import-status'))$('import-status').textContent=
   epoch++;if(timer)clearInterval(timer);client=next.client;user=next.user;rows=[];publish();busy=false;selected=null;dirty=false;open=false;
   $('cloud-import-panel').hidden=true;$('cloud-import-list').replaceChildren();fill(null);
   message('');
-  if(user){timer=setInterval(background,20000);void run(async()=>{await load()})}
+  // Reloads every minute while open (and on focus, visibility and changes), so large lists don't re-download constantly.
+  if(user){timer=setInterval(background,60000);void run(async()=>{await load()})}
  });
  fill(null);
 })();

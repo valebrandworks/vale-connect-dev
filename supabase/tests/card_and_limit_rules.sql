@@ -6,6 +6,8 @@ SELECT set_config('vale.rule_b',gen_random_uuid()::text,true);
 INSERT INTO auth.users(id,email) VALUES
 (current_setting('vale.rule_a')::uuid,'rule-a-'||current_setting('vale.rule_a')||'@example.invalid'),
 (current_setting('vale.rule_b')::uuid,'rule-b-'||current_setting('vale.rule_b')||'@example.invalid');
+-- Free has no connection limit; a temporary limit of 5 tests the plan-limit mechanism that other plans may use. Rolled back.
+UPDATE public.membership_plans SET max_active_connections=5 WHERE code='free';
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims',json_build_object('sub',current_setting('vale.rule_a'),'role','authenticated')::text,true);
 DO $$
@@ -24,7 +26,7 @@ BEGIN
  BEGIN UPDATE public.public_cards SET display_name='   ' WHERE slug=first_slug; RAISE EXCEPTION 'Blank display name allowed'; EXCEPTION WHEN check_violation THEN NULL; END;
  BEGIN UPDATE public.public_cards SET introduction=repeat('x',301) WHERE slug=first_slug; RAISE EXCEPTION 'Oversized introduction allowed'; EXCEPTION WHEN check_violation THEN NULL; END;
  UPDATE public.public_cards SET published=true WHERE slug=first_slug;
- -- Free's active-connection limit is reached exactly; one more isn't allowed; archiving frees a place.
+ -- A plan's active-connection limit is reached exactly; one more isn't allowed; archiving frees a place.
  FOR i IN 1..(SELECT max_active_connections FROM public.membership_plans WHERE code='free') LOOP INSERT INTO public.connections(owner_id,full_name) VALUES(a,'Synthetic '||i); END LOOP;
  BEGIN INSERT INTO public.connections(owner_id,full_name) VALUES(a,'Sixth'); RAISE EXCEPTION 'CHECK: sixth Free connection allowed';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'CHECK:%' THEN RAISE; END IF; END;

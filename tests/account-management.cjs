@@ -7,17 +7,22 @@ async function usage(){
  const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,{textContent:''});return elements.get(id)};const handlers={};let pending=[];
  const context={window:{addEventListener:(n,f)=>handlers[n]=f},document:{getElementById:get}};
  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'membership.js'),'utf8'),context);
- const row={plan_name:'Free',max_cards:1,max_active_connections:1000,card_count:1,active_connection_count:3,archived_connection_count:0};
+ // Free has unlimited connections. A plan with a connection limit (none today) is still displayed correctly.
+ const free={plan_name:'Free',max_cards:1,max_active_connections:null,card_count:1,active_connection_count:1500,archived_connection_count:0};
+ const row={plan_name:'Limited test plan',max_cards:1,max_active_connections:1000,card_count:1,active_connection_count:3,archived_connection_count:0};
  let featureList=['advanced_search'];const client={rpc:name=>{if(name==='get_my_features')return Promise.resolve({data:featureList});assert.equal(name,'get_my_usage');return new Promise(r=>pending.push(r))}};
- handlers['vale-account-ready']({detail:{client,user:{id:'a'}}});pending.shift()({data:[row]});await settle();
- assert.equal(get('account-usage').textContent,'Free membership · 3 of 1,000 connections','Free shows no card count');
+ handlers['vale-account-ready']({detail:{client,user:{id:'a'}}});pending.shift()({data:[free]});await settle();
+ assert.equal(get('account-usage').textContent,'Free membership · 1,500 connections','Free shows its count with no limit and no card count');
+ assert.equal(context.window.ValeUsage.nearLimit(context.window.ValeUsage.usage()),'','Free never sees a near-limit notice');
+ void context.window.ValeUsage.refresh();pending.shift()({data:[row]});await settle();
+ assert.equal(get('account-usage').textContent,'Limited test plan membership · 3 of 1,000 connections','a plan with a limit shows it');
  const U=context.window.ValeUsage;assert.equal(U.has('advanced_search'),true);assert.equal(U.has('reminders'),false);assert.equal(U.usage().max_active_connections,1000);
  assert.equal(U.nearLimit(U.usage()),'','no notice far from the limit');
  assert.match(U.nearLimit({...row,active_connection_count:900}),/900 of 1,000 active connections/);
  assert.match(U.nearLimit({...row,active_connection_count:1000}),/reached 1,000 active connections.*Archive/);
  assert.equal(U.nearLimit({...row,max_active_connections:null,active_connection_count:99999}),'','no notice without a limit');
  void U.refresh();pending.shift()({data:[{...row,active_connection_count:1200,archived_connection_count:2}]});await settle();
- assert.equal(get('account-usage').textContent,'Free membership · 1,200 of 1,000 connections · 2 archived');
+ assert.equal(get('account-usage').textContent,'Limited test plan membership · 1,200 of 1,000 connections · 2 archived');
  void U.refresh();pending.shift()({data:[{...row,plan_name:'Plus',max_cards:3,max_active_connections:null,card_count:3,active_connection_count:40}]});await settle();
  assert.equal(get('account-usage').textContent,'Plus membership · 3 of 3 cards · 40 connections');
  assert.doesNotMatch(get('account-usage').textContent,/unlimited|upgrade/i,'no unlimited claims or upgrade prompts');

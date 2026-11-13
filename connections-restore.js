@@ -35,7 +35,7 @@
    if(!valid())return {added,skipped,failed,cancelled:true};
    if(match(rows,row)?.exact){skipped++;continue}
    try{const saved=await core.create(client,owner,contact(row));if(!valid())return {added:added+1,skipped,failed,cancelled:true};rows.push(saved);added++;}
-   catch(error){if(error.code==='23505')skipped++;else {failed++;return {added,skipped,failed,stopped:true};}}
+   catch(error){if(error.code==='23505')skipped++;else if(core.isRateLimit?.(error))return {added,skipped,failed,stopped:true,paused:error.message};else {failed++;return {added,skipped,failed,stopped:true};}}
   }
   return {added,skipped,failed,cancelled:false};
  }
