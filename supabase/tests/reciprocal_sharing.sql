@@ -181,7 +181,7 @@ DO $$ DECLARE before int := (SELECT count(*) FROM public.connections WHERE owner
     OR NOT EXISTS (SELECT 1 FROM public.notifications WHERE kind = 'share_limit') THEN RAISE EXCEPTION 'Limit share not kept for review'; END IF;
 END $$;
 RESET ROLE;
-UPDATE public.membership_plans SET max_active_connections = 1000 WHERE code = 'free';
+UPDATE public.membership_plans SET max_active_connections = NULL WHERE code = 'free';
 
 -- F. Owner actions: read only their own shares; add a reviewed share as a separate connection; mark notifications read.
 SET LOCAL ROLE authenticated;

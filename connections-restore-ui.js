@@ -45,7 +45,7 @@
    const rows=await exporter.fetchAll(api,account.id,()=>e===epoch);if(e!==epoch)return;
    const result=await restore.restore(api,account.id,chosen,rows,()=>e===epoch);if(e!==epoch)return;
    // Clear the preview after a write attempt; a fresh preview is required before retry.
-   clear();status('Added '+result.added+'; already present '+result.skipped+'; failed '+result.failed+'. '+(result.stopped?'Stopped after a failed request; preview the file again to check what was saved. ':'')+'Existing notes and browser contacts were kept.');
+   clear();status('Added '+result.added+'; already present '+result.skipped+'; failed '+result.failed+'. '+(result.paused?result.paused+' To restore the rest later, preview the same file again: connections already restored are recognised and skipped. ':result.stopped?'Stopped after a failed request; preview the file again to check what was saved. ':'')+'Existing notes and browser contacts were kept.');
    window.dispatchEvent(new Event('vale-cloud-connections-changed'));
   }catch(error){if(e===epoch)status((error.message||'Restore could not start.')+' Preview again before retrying. Existing connections were not overwritten.')}
   finally{if(e===epoch){busy=false;controls()}}

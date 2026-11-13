@@ -65,6 +65,8 @@
   const haystack=[row.full_name,row.business_name,row.email,row.phone,row.job_title,row.notes,row.category,row.met_where,row.met_how,row.introduced_by,history].map(str).join(' ').toLocaleLowerCase('en');
   return words.every(word=>haystack.includes(word));
  }
- const api={fields,categories,steps,toLocal,payload,importContact,list,duplicate,create,update,overview,setArchived,remove,matches};
+ // The database's pause on adding many new connections quickly (connection_limits). Nothing saved is affected.
+ const isRateLimit=error=>error?.hint==='connection_rate_limit'||/New connections are paused/.test(String(error?.message||''));
+ const api={fields,categories,steps,toLocal,payload,importContact,list,duplicate,create,update,overview,setArchived,remove,matches,isRateLimit};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeCloudConnections=api;
 })(typeof window!=='undefined'?window:globalThis);
