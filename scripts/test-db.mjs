@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections', 'card_reports'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED, REPORTS] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -56,7 +56,41 @@ const shareStart = sharingSql.search(/CREATE (OR REPLACE )?FUNCTION public\.reco
 if (shareStart < 0 || shareEnd < 8) throw new Error('record_share not found for the sharing checks');
 const recordShare = sharingSql.slice(shareStart, shareEnd).replace(/^CREATE FUNCTION/, 'CREATE OR REPLACE FUNCTION');
 const withoutRule = (find, replace = '') => { if (!recordShare.includes(find)) throw new Error('Sharing rule not found: ' + find); return recordShare.replace(find, replace); };
+// Report functions with one rule changed, taken from the reports migration.
+const REPORTS_SQL = 'supabase/migrations/20261114000000_add_card_reports.sql', REPORTS_DOWN = 'supabase/rollback/20261114000000_add_card_reports.down.sql';
+const reportsSql = sql(REPORTS_SQL).replace(/\r\n/g, '\n');
+const reportFn = (name, find, replace = '') => {
+  const start = reportsSql.indexOf(`CREATE FUNCTION ${name}(`), end = reportsSql.indexOf('\nEND $$;', start) + 8;
+  if (start < 0 || end < 8) throw new Error('Report function not found: ' + name);
+  const body = reportsSql.slice(start, end).replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION');
+  if (!body.includes(find)) throw new Error(`Report rule not found in ${name}: ${find}`);
+  return body.replace(find, replace);
+};
 const brokenRules = [
+  ['reports: visitors can submit directly', REPORTS, 'GRANT EXECUTE ON FUNCTION public.submit_card_report(text, uuid, text, text, text, boolean, text) TO anon'],
+  ['reports: accounts can read reports', REPORTS, 'GRANT SELECT ON vale_private.card_reports TO authenticated'],
+  ['reports: server role can read reports', REPORTS, 'GRANT USAGE ON SCHEMA vale_private TO service_role; GRANT SELECT ON vale_private.card_reports TO service_role'],
+  ['reports: admin without two-step sign-in', REPORTS, reportFn('vale_private.require_admin', "coalesce(auth.jwt()->>'aal', '') <> 'aal2'", 'false')],
+  ['reports: any signed-in account is an admin', REPORTS, reportFn('vale_private.require_admin', 'OR NOT EXISTS (SELECT 1 FROM vale_private.platform_admins a WHERE a.user_id = uid)')],
+  ['reports: drafts can be reported', REPORTS, reportFn('public.submit_card_report', 'IF NOT FOUND OR NOT card.published THEN', 'IF NOT FOUND THEN')],
+  ['reports: no accuracy confirmation needed', REPORTS, reportFn('public.submit_card_report', 'IF p_attested IS NOT TRUE OR p_submission_id IS NULL', 'IF p_submission_id IS NULL')],
+  ['reports: raw addresses accepted as the network', REPORTS, reportFn('public.submit_card_report', "OR coalesce(p_network_hash, '') !~ '^[0-9a-f]{64}$'", "OR coalesce(p_network_hash, '') = ''") + '; ALTER TABLE vale_private.card_reports DROP CONSTRAINT card_reports_network_hash_check'],
+  ['reports: no rate limits', REPORTS, "UPDATE vale_private.report_settings SET value = 100000 WHERE name LIKE '%per_day'"],
+  ['reports: identical repeats stored again', REPORTS, reportFn('public.submit_card_report', 'IF existing IS NOT NULL THEN', 'IF false THEN')],
+  ['reports: blocked networks still stored', REPORTS, reportFn('public.submit_card_report', "IF EXISTS (SELECT 1 FROM vale_private.blocked_reporters b WHERE b.network_hash = p_network_hash) THEN RETURN 'blocked'; END IF;")],
+  ['reports: snapshot copies private card fields', REPORTS, reportFn('public.submit_card_report', "jsonb_strip_nulls(jsonb_build_object('display_name', card.display_name,", "to_jsonb(card) || jsonb_strip_nulls(jsonb_build_object('display_name', card.display_name,")],
+  ['reports: alerts not throttled', REPORTS, "CREATE OR REPLACE FUNCTION public.claim_report_alert() RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path TO '' AS 'SELECT true'"],
+  ['reports: closing a report keeps the email', REPORTS, reportFn('public.admin_set_report_status', 'reporter_email = CASE WHEN closing THEN NULL ELSE reporter_email END', 'reporter_email = reporter_email') + '; ALTER TABLE vale_private.card_reports DROP CONSTRAINT card_reports_email_removed_when_closed'],
+  ['reports: decisions without a note', REPORTS, "CREATE OR REPLACE FUNCTION vale_private.clean_note(p_note text, p_required boolean) RETURNS text LANGUAGE sql IMMUTABLE SET search_path TO '' AS 'SELECT coalesce(p_note, '''')'"],
+  ['reports: hiding leaves the card public', REPORTS, reportFn('public.admin_hide_card', ' UPDATE public.public_cards SET published = false WHERE id = rep.card_id;\n')],
+  ['reports: hiding without telling the owner', REPORTS, reportFn('public.admin_hide_card', " INSERT INTO public.notifications(owner_id, kind, card_id) VALUES (v_owner, 'card_hidden', rep.card_id);\n")],
+  ['reports: hiding not logged', REPORTS, reportFn('public.admin_hide_card', " INSERT INTO vale_private.moderation_actions(admin_id, action, report_id, card_id, note) VALUES (uid, 'hide_card', rep.id, rep.card_id, v_note);\n")],
+  ['reports: owners can republish hidden cards', REPORTS, 'DROP TRIGGER public_cards_holds ON public.public_cards'],
+  ['reports: owners see who reported', REPORTS, "DROP FUNCTION public.get_my_card_holds(); CREATE FUNCTION public.get_my_card_holds() RETURNS TABLE (card_id uuid, hidden_at timestamptz, category text, owner_message text, reporter text) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT h.card_id, h.hidden_at, h.category, h.owner_message, r.network_hash FROM vale_private.card_holds h JOIN public.public_cards c ON c.id = h.card_id LEFT JOIN vale_private.card_reports r ON r.id = h.report_id WHERE c.owner_id = (SELECT auth.uid())'; GRANT EXECUTE ON FUNCTION public.get_my_card_holds() TO authenticated"],
+  ['reports: restoring leaves the card hidden', REPORTS, reportFn('public.admin_restore_card', ' UPDATE public.public_cards SET published = true WHERE id = p_card_id;\n')],
+  ['reports: cleanup keeps everything', REPORTS, "CREATE OR REPLACE FUNCTION vale_private.purge_reports() RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path TO '' AS 'SELECT'"],
+  ['reports: cleanup ignores legal holds', REPORTS, reportFn('vale_private.purge_reports', 'DELETE FROM vale_private.card_reports r WHERE NOT r.legal_hold', 'DELETE FROM vale_private.card_reports r WHERE true')],
+  ['reports: deleting an account deletes reports about it', REPORTS, 'ALTER TABLE vale_private.card_reports DROP CONSTRAINT card_reports_card_owner_id_fkey, ADD CONSTRAINT card_reports_card_owner_id_fkey FOREIGN KEY (card_owner_id) REFERENCES auth.users(id) ON DELETE CASCADE'],
   ['unlimited: Free capped again', UNLIMITED, "UPDATE public.membership_plans SET max_active_connections = 1000 WHERE code = 'free'"],
   ['unlimited: no rate limit on new connections', UNLIMITED, 'DELETE FROM public.connection_limits'],
   ['unlimited: members can change the rate limits', UNLIMITED, 'GRANT SELECT, UPDATE ON public.connection_limits TO authenticated; CREATE POLICY open_limits ON public.connection_limits FOR ALL TO authenticated USING (true) WITH CHECK (true)'],
@@ -187,6 +221,22 @@ report(ucOld, 'unlimited rollback: the unlimited test notices the limit is back'
 await ucDb.exec(sql(UC_UP));
 report(JSON.stringify(await snapshotOf(ucDb)) === JSON.stringify(ucBefore), 'unlimited: re-applying after rollback restores the same structure');
 await ucDb.close();
+
+// Reports: the rollback removes the feature (leaving cards and notifications as they were), and re-applying restores the same structure.
+const crDb = await rebuild(repo);
+const crBefore = await snapshotOf(crDb);
+await crDb.exec(sql(REPORTS_DOWN));
+const crDown = await snapshotOf(crDb);
+report(!crDown.tables.some(t => t.name.startsWith('vale_private.') && t.name !== 'vale_private.share_keys') && !crDown.functions.some(f => /report|admin_|card_hold|card_is_held|require_admin/.test(f.signature)) && !crDown.triggers.some(t => t.name === 'public_cards_holds') && !crDown.columns.some(c => c.table === 'notifications' && c.column === 'card_id'), 'reports rollback: removes the tables, functions, trigger and notice column');
+let crOld = false;
+try { await crDb.exec(sql(REPORTS)); } catch { crOld = true; await crDb.exec('ROLLBACK'); }
+report(crOld, 'reports rollback: the reports test notices the feature is gone');
+await crDb.exec(sql(REPORTS_SQL));
+const crAgain = await snapshotOf(crDb);
+// Re-adding the notice column gives it a new position; everything else must match exactly.
+const noPosition = s => JSON.stringify({ ...s, columns: s.columns.map(({ position, ...c }) => c) });
+report(noPosition(crAgain) === noPosition(crBefore), 'reports: re-applying after rollback restores the same structure');
+await crDb.close();
 
 // The launch gate passes on the finished design and fails if a protection is missing.
 const gateRows = async database => (await database.query(sql('supabase/inspection/launch_gate.sql'))).rows;
