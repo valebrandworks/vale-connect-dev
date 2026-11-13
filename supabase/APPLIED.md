@@ -13,6 +13,7 @@ through its migration tooling; SQL run in the dashboard's SQL Editor isn't liste
 | `20261109030000_add_sharing_indexes.sql` | 2026-11-09, 04:54 UTC | Applied once through Supabase migration tooling (the file's four CREATE INDEX statements, without its BEGIN/COMMIT), after a verified backup and a rolled-back dry run | Yes, as version `20261109045438` (`add_sharing_indexes`) |
 | `20261110000000_hash_share_contact_keys.sql` | 2026-11-10, about 00:20 UTC | Applied once through Supabase migration tooling (without the file's BEGIN/COMMIT), after a verified backup (now including share records and notifications) and rolled-back dry runs | Yes |
 | `20261110000100_validate_share_contact_keys.sql` | 2026-11-10, about 00:21 UTC | Its two statements run as SQL with the founder's approval: the one existing readable rate-limit record was hashed in place, then the check validated | No |
+| `20261112000000_unlimited_free_connections.sql` | 2026-11-13, 01:16 UTC (2026-11-12 US time) | Applied once through Supabase migration tooling (without the file's BEGIN/COMMIT), after a verified backup and rolled-back dry runs | Yes, as version `20261113011616` (`unlimited_free_connections`) |
 
 Verified after applying, on 2026-11-08 at 22:55 UTC:
 - Private `card-images` bucket: 1 MB limit; WebP, PNG and JPEG only.
@@ -42,6 +43,13 @@ Verified after hashing contact keys, on 2026-11-10:
 - All 14 live test files pass, rolled back, including `share_contact_keys.sql`; the launch gate passes 10 of 10.
 
 The reverse is `supabase/rollback/20261110000000_hash_share_contact_keys.down.sql`.
+
+Verified after making Free connections unlimited, on 2026-11-13 UTC:
+- Free's `max_active_connections` is NULL (unlimited). `connection_limits` holds 1,000 new connections per hour and 5,000 per day; RLS is on and members can't read it. The index `connections_owner_created_idx` exists.
+- Existing cards, connections and share records are unchanged (row fingerprints identical before and after); notification count unchanged.
+- All 15 live test files pass, rolled back, including `unlimited_connections.sql` (hourly and daily limits; edits, archiving and unarchiving never limited); the launch gate passes 10 of 10; the live structure matches the repository (240 items, 0 differences).
+
+The reverse is `supabase/rollback/20261112000000_unlimited_free_connections.down.sql`. It returns Free to 1,000 and removes the table and index; no connections are deleted.
 
 ## Production
 
