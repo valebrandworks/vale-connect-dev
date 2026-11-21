@@ -205,3 +205,17 @@ dialog.ask p{margin:0 0 16px;line-height:1.5}
 .link-btn{background:none;border:0;padding:10px 2px;min-height:44px;color:var(--gold-soft);font-weight:600;font-size:14px;text-decoration:underline;text-underline-offset:3px}
 .link-btn:hover{color:var(--gold)}
 
+
+/* Report this card (report.html) */
+.report h1{font-size:22px;margin:0 0 6px}
+.report h1:focus{outline:none}
+.report .note{margin:12px 0 0}
+.report-reasons{border:0;padding:0;margin:16px 0 0}
+.report-reasons legend{font-size:14px;font-weight:600;color:var(--ivory);padding:0;margin-bottom:4px}
+.check.reason{margin:0;padding:10px 2px;border-bottom:1px solid var(--line);align-items:flex-start}
+.check.reason:last-child{border-bottom:0}
+.check.reason input{width:20px;height:20px;min-height:0;padding:0;margin:2px 0 0;flex:none;accent-color:var(--gold)}
+.check.reason>span{min-width:0;flex:1}
+.reason-hint{display:block;font-size:13px}
+.report-form textarea{width:100%;resize:vertical}
+.report-form .actions .btn{text-align:center}

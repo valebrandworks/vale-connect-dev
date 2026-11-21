@@ -7,7 +7,7 @@
   <div id="shareBack" class="panel share-back" style="margin-top:14px" hidden></div>
   <div id="publicCloudSave" class="panel" style="margin-top:14px"></div>
  </section>
- <p class="footer">Shared with VALE Connect · <a href="./">Create your own card</a></p>
+ <p class="footer">Shared with VALE Connect · <a href="./">Create your own card</a><span id="report-link-wrap" hidden> · <a id="report-link" href="report.html">Report this card</a></span></p>
 </main>
 <script src="ui-ask.js?v=10"></script><script src="platform-icons.js?v=10"></script><script src="card-view.js?v=12"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script><script src="cards-core.js?v=11"></script><script src="card-images.js?v=2"></script><script src="connections-core.js?v=5"></script><script src="account-lists.js?v=7"></script><script src="cloud-connections-core.js?v=13"></script><script src="cloud-save-ui.js?v=10"></script><script src="share-back-core.js?v=1"></script><script src="share-back.js?v=1"></script><script>
 (async()=>{'use strict';
@@ -33,6 +33,8 @@ try{
  // Sharing back is offered only if the owner allows it; the server checks this again.
  window.ValeShareBack?.mount('shareBack',{card:{id:data.id,display_name:data.display_name,accept_shares:data.accept_shares===true},slug});
  window.ValeCloudSave?.mount('publicCloudSave',values,{cardId:data.id,url:location.href});
+ // A discreet way to report the card, shown only for a card that loaded (published cards only).
+ $('report-link').href='report.html?u='+encodeURIComponent(slug);$('report-link-wrap').hidden=false;
  $('status').hidden=true;$('profile').hidden=false;document.title=data.display_name+' · VALE Connect';
 }catch(e){$('status').textContent='This card can’t load right now. Try again later.';console.error('Public card load failed',e)}
 })();

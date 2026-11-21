@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#111317"><title>Report a card · VALE Connect</title><link rel="stylesheet" href="styles.css?v=20"><link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png"></head><body>
+<main class="wrap" style="padding-bottom:40px">
+ <p id="status" class="muted center" role="status" style="padding:40px 0">Loading…</p>
+ <section id="report" class="panel report" hidden></section>
+ <p class="footer">VALE Connect · <a href="privacy.html">Privacy</a></p>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script><script src="report-core.js?v=1"></script><script src="report.js?v=1"></script><script>
+(async()=>{'use strict';
+const $=id=>document.getElementById(id);
+const slug=new URLSearchParams(location.search).get('u')||'';
+if(!window.ValeReportCore?.slugOk(slug)){$('status').textContent='This card link isn’t valid.';return}
+if(!window.supabase){$('status').textContent='This page can’t load right now. Try again later.';return}
+// The card is read only through the public lookup, which returns published cards and their public fields only.
+const client=window.supabase.createClient('https://jlprxnmdvoloahssjlnu.supabase.co','sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_',{auth:{persistSession:false,autoRefreshToken:false}});
+try{
+ const {data:found,error}=await client.rpc('get_public_card',{card_slug:slug});
+ if(error)throw error;
+ const card=found?.[0]||null;
+ if(!card){$('status').textContent='This card is not available.';return}
+ window.ValeReport.mount('report',{slug,card:{display_name:card.display_name}});
+ $('status').hidden=true;$('report').hidden=false;
+}catch(e){$('status').textContent='This page can’t load right now. Try again later.';console.error('Report page load failed',e)}
+})();
+</script></body></html>
