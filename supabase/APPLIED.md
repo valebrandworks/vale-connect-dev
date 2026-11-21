@@ -80,4 +80,51 @@ The reverse is `supabase/rollback/20261122000000_lift_marks_hidden_notice_read.d
 
 ## Production
 
-None of the November 2026 migrations are applied to production.
+### New production project (VALE Connect Production, `uhribjaiyuwivzqxusur`)
+
+Built on 2026-11-21 (UTC) as an empty, new project: the starting file, then every migration, exactly as committed at `cbb17a9`. Each file was checked by sha256 against the rolled-back dry run, applied once through Supabase's migration endpoint (without the file's BEGIN/COMMIT) and recorded in the migration list. No accounts or data were imported; public sign-ups are disabled.
+
+- A rolled-back dry run of the whole build, with every test, passed first, and left the project empty.
+- The first attempt stopped after the starting file: the next history entry was refused because two entries were stamped in the same second. That step was rolled back entirely. After checking that only the starting file was present (0 differences), the build resumed from the first migration, with a pause between steps.
+
+| Repository file | In Supabase's migration list |
+|---|---|
+| `00_objects_before_migrations.sql` | `20261121220220` (`baseline_objects_before_migrations`) |
+| `20261102224721_restore_private_profile_sync.sql` | `20261121220543` (`restore_private_profile_sync`) |
+| `20261102224901_repair_public_card_client_permissions.sql` | `20261121220546` (`repair_public_card_client_permissions`) |
+| `20261103001958_support_multiple_public_cards.sql` | `20261121220549` (`support_multiple_public_cards`) |
+| `20261103025723_add_private_cloud_connections.sql` | `20261121220553` (`add_private_cloud_connections`) |
+| `20261103044001_restrict_rls_event_trigger_client_execution.sql` | `20261121220556` (`restrict_rls_event_trigger_client_execution`) |
+| `20261104074759_harden_cards_and_add_membership_limits.sql` | `20261121220559` (`harden_cards_and_add_membership_limits`) |
+| `20261104080556_add_deletion_and_usage.sql` | `20261121220603` (`add_deletion_and_usage`) |
+| `20261104080840_add_relationship_details.sql` | `20261121220606` (`add_relationship_details`) |
+| `20261104082212_add_plan_features.sql` | `20261121220609` (`add_plan_features`) |
+| `20261108203429_restrict_public_card_reads.sql` | `20261121220613` (`restrict_public_card_reads`) |
+| `20261108220219_raise_free_connection_limit.sql` | `20261121220616` (`raise_free_connection_limit`) |
+| `20261109010000_add_card_images_and_appearance.sql` | `20261121220619` (`add_card_images_and_appearance`) |
+| `20261109020000_add_reciprocal_sharing.sql` | `20261121220623` (`add_reciprocal_sharing`) |
+| `20261109030000_add_sharing_indexes.sql` | `20261121220626` (`add_sharing_indexes`) |
+| `20261110000000_hash_share_contact_keys.sql` | `20261121220630` (`hash_share_contact_keys`) |
+| `20261110000100_validate_share_contact_keys.sql` | `20261121220633` (`validate_share_contact_keys`) |
+| `20261112000000_unlimited_free_connections.sql` | `20261121220636` (`unlimited_free_connections`) |
+| `20261114000000_add_card_reports.sql` | `20261121220640` (`add_card_reports`) |
+| `20261121000000_add_admin_get_report.sql` | `20261121220643` (`add_admin_get_report`) |
+| `20261121000100_lift_restriction_keeps_card_private.sql` | `20261121220647` (`lift_restriction_keeps_card_private`) |
+| `20261122000000_lift_marks_hidden_notice_read.sql` | `20261121220650` (`lift_marks_hidden_notice_read`) |
+
+Verified after the build, on 2026-11-21 UTC:
+- **Structure:** the live structure matches the repository (388 items, 0 differences).
+- **Launch gate:** passes 16 of 16.
+- **Tests:** all 18 test files pass, rolled back, leaving nothing behind.
+- **Table access:**
+  - row security is on for all 21 tables;
+  - visitors have no direct table access;
+  - visitors can call only `get_public_card` and the two image and hold helpers.
+- **Admin functions:** all 9 require a listed admin with two-step sign-in, and visitors and the server role can't call them. No admins are listed yet.
+- **Data:** configuration only (3 plans, settings, the private `card-images` bucket, one generated key). No accounts, cards, connections or files.
+- **Daily cleanup:** `vale-report-cleanup` is scheduled at 04:23 UTC.
+- **Security advisors:** reviewed. The findings are the expected ones for this design (private tables with no client policies; functions that check the caller themselves).
+
+### Earlier v0.9 project
+
+Unchanged. It's kept until at least 30 days after launch; pausing or deleting it needs separate approval.
