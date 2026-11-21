@@ -219,3 +219,45 @@ dialog.ask p{margin:0 0 16px;line-height:1.5}
 .reason-hint{display:block;font-size:13px}
 .report-form textarea{width:100%;resize:vertical}
 .report-form .actions .btn{text-align:center}
+/* Card hidden after a review (Card tab) */
+.hold-notice{margin:10px 0 14px;border-color:#a9535366;background:#a953530f}
+.hold-notice h2{font-size:16px;margin:0 0 6px;color:var(--ivory)}
+.hold-notice p{margin:6px 0}
+.hold-notice .btn{margin-top:8px}
+.pill.held{border-color:#a9535366;color:var(--danger)}
+.hold-notice[data-kind=lifted]{border-color:#c9a45c33;background:#c9a45c10}
+/* Private report review (admin.html) */
+.admin h1{font-size:22px;margin:12px 0 8px}
+.admin h1:focus{outline:none}
+.admin h2{font-size:16px;margin:0 0 10px}
+.admin h3{font-size:14px;margin:14px 0 6px}
+.admin-loading{padding:40px 0}
+.admin .chips{margin:4px 0 8px}
+.admin .chips .btn{min-height:38px;padding:6px 12px;font-size:13px}
+.admin-row{align-items:flex-start;flex-wrap:wrap}
+.admin-row .who{flex:1 1 220px}
+.admin-flags{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 6px}
+.admin-box{margin-top:12px}
+.admin-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0}
+.admin-facts dt{font-size:12px;color:var(--muted)}
+.admin-facts dd{margin:2px 0 0;color:var(--ivory)}
+.admin-text{white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0;color:var(--ivory)}
+.admin-compare{display:flex;flex-direction:column}
+.admin-compare-row{display:grid;grid-template-columns:110px 1fr 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;overflow-wrap:anywhere}
+.admin-compare-row:last-child{border-bottom:0}
+.admin-compare-row.changed{color:var(--gold-soft)}
+.admin-k{color:var(--muted)}
+.admin-buttons{display:flex;flex-wrap:wrap;gap:8px}
+.admin-form{margin-top:4px}
+.admin-form textarea{width:100%;resize:vertical}
+.admin-history{list-style:none;margin:0;padding:0}
+.admin-history li{padding:8px 0;border-bottom:1px solid var(--line)}
+.admin-history li:last-child{border-bottom:0}
+.admin-qr{display:block;width:200px;height:200px;margin:10px 0;background:#fff;border-radius:10px;padding:8px}
+.admin-secret{font-size:13px;overflow-wrap:anywhere;color:var(--ivory)}
+.admin a{overflow-wrap:anywhere}
+.admin-signout{margin-top:24px}
+@media (max-width:560px){
+ .admin-compare-row{grid-template-columns:1fr;gap:2px}
+ .admin-buttons .btn{flex:1 1 100%}
+}
