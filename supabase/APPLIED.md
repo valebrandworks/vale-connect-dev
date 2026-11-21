@@ -15,6 +15,8 @@ through its migration tooling; SQL run in the dashboard's SQL Editor isn't liste
 | `20261110000100_validate_share_contact_keys.sql` | 2026-11-10, about 00:21 UTC | Its two statements run as SQL with the founder's approval: the one existing readable rate-limit record was hashed in place, then the check validated | No |
 | `20261112000000_unlimited_free_connections.sql` | 2026-11-13, 01:16 UTC (2026-11-12 US time) | Applied once through Supabase migration tooling (without the file's BEGIN/COMMIT), after a verified backup and rolled-back dry runs | Yes, as version `20261113011616` (`unlimited_free_connections`) |
 | `20261114000000_add_card_reports.sql` | 2026-11-13, 03:01 UTC | Applied once through Supabase's migration endpoint, exactly as committed at `22c8aa2` (without the file's BEGIN/COMMIT), after a verified backup and rolled-back dry runs. Enabled `pg_cron` and scheduled `vale-report-cleanup` (daily, 04:23 UTC) | Yes, as version `20261113030137` (`add_card_reports`) |
+| `20261121000000_add_admin_get_report.sql` | 2026-11-21, 18:32 UTC | Applied once through Supabase's migration endpoint, exactly as committed at `4edb5d0` (sha256 `18401c2a…`, without the file's BEGIN/COMMIT), after a verified backup and rolled-back dry runs | Yes, as version `20261121183210` (`add_admin_get_report`) |
+| `20261121000100_lift_restriction_keeps_card_private.sql` | 2026-11-21, 18:32 UTC | Applied once through Supabase's migration endpoint, exactly as committed at `4edb5d0` (sha256 `2ab48142…`, without the file's BEGIN/COMMIT), directly after the one above | Yes, as version `20261121183224` (`lift_restriction_keeps_card_private`) |
 
 Verified after applying, on 2026-11-08 at 22:55 UTC:
 - Private `card-images` bucket: 1 MB limit; WebP, PNG and JPEG only.
@@ -58,6 +60,14 @@ Verified after adding Report This Card (stage A), on 2026-11-13 UTC:
 - All 16 live test files pass, rolled back, including `card_reports.sql` (admin actions require a listed admin with two-step sign-in; reports never hide a card on their own; the cleanup keeps legal holds, open reports and still-hidden cards' records). The launch gate passes 14 of 14; the live structure matches the repository (387 items, 0 differences).
 
 The reverse is `supabase/rollback/20261114000000_add_card_reports.down.sql`. It removes the feature and the scheduler (if nothing else uses it); cards hidden by moderation stay unpublished.
+
+Verified after Report This Card stage C (`admin_get_report`, and lifting a restriction keeps the card private), on 2026-11-21 UTC:
+- Both functions are identical to the repository (definition, SECURITY DEFINER, search_path); visitors and the server role can't call them.
+- All existing data is unchanged: every app and moderation table has the same rows and content fingerprint as before, including the 2 open test reports. Only the two functions and the two history entries changed.
+- All 18 live test files pass, rolled back, including `admin_get_report.sql` and `lift_restriction.sql`. The launch gate passes 16 of 16. The live structure matches the repository (388 items, 0 differences).
+- As a visitor, the API refuses `admin_get_report`, `admin_restore_card` and `admin_list_reports`, and doesn't expose the private schema.
+
+The reverse, in this order: `supabase/rollback/20261121000100_lift_restriction_keeps_card_private.down.sql` (restores the stage A function; no data changes), then `supabase/rollback/20261121000000_add_admin_get_report.down.sql`.
 
 ## Production
 
