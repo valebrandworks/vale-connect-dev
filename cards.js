@@ -6,6 +6,8 @@
  const ask=(text,options)=>window.ValeAsk?window.ValeAsk(text,options):Promise.resolve(confirm(text));
  const fields=Object.keys(tools.fields);
  let client=null,user=null,cards=[],selected=null,editing=null,dirty=false,busy=false,epoch=0,loaded=false;
+ // Cards hidden after a review (from get_my_card_holds): their owner sees why and how to appeal.
+ const holdTools=window.ValeCardHolds;let holds=new Map();
  const images=window.ValeCardImages,crop=window.ValePhotoCrop,unfinished=new Set();
  const message=text=>{$('cards-status').textContent=text};
  const maxCards=()=>{const u=window.ValeUsage?.usage?.();return u&&u.max_cards!==null&&u.max_cards!==undefined?Number(u.max_cards):null};
@@ -73,15 +75,29 @@
   $('card-editor').hidden=!isEditing;
   if(selected&&!isEditing){
    $('card-preview').replaceChildren(view.render(tools.toEditor(selected),{preset:selected.appearance,photoUrl:photoUrl(selected.photo_path,render),logoUrl:photoUrl(selected.logo_path,render)}));
-   const pill=$('card-visibility');pill.className='pill'+(selected.published?' public':'');pill.textContent=selected.published?'Public':'Private draft · only you can see it';
-   $('card-publish-row').hidden=!!selected.published;$('card-share-row').hidden=!selected.published;
+   const held=holds.get(selected.id)||null;
+   const pill=$('card-visibility');pill.className='pill'+(held?' held':selected.published?' public':'');pill.textContent=held?'Hidden after a review':selected.published?'Public':'Private draft · only you can see it';
+   $('card-publish-row').hidden=!!selected.published||!!held;$('card-share-row').hidden=!selected.published;
+   renderHold(held);
    $('card-link-name').textContent=multi()?selected.card_label:'';
   }
+  if(!selected||isEditing)renderHold(null);
   const switcher=$('card-switcher');switcher.replaceChildren();switcher.hidden=!multi()||isEditing||!cards.length;
   for(const row of cards){const b=document.createElement('button');b.type='button';b.className='btn'+(row.id===selected?.id?' primary':'');b.textContent=row.card_label;b.disabled=busy;b.setAttribute('aria-pressed',String(row.id===selected?.id));b.onclick=()=>{selected=row;render();announce()};switcher.append(b)}
   const room=maxCards()!==null&&cards.length<maxCards();
   $('cards-new').hidden=!multi()||!room||isEditing;
   for(const el of $('card-editor').querySelectorAll('input,textarea,button'))el.disabled=busy;
+ }
+ // The notice on a hidden card: reason, the explanation written for the owner, and how to appeal. Never the reporter.
+ function renderHold(hold){
+  const box=$('card-hold-notice');if(!box)return;
+  if(!hold||!holdTools){box.hidden=true;box.replaceChildren();return}
+  const n=holdTools.notice(hold,selected);
+  const p=(text,cls)=>{const x=document.createElement('p');x.textContent=text;if(cls)x.className=cls;return x};
+  const h=document.createElement('h2');h.textContent=n.title;
+  const link=document.createElement('a');link.className='btn';link.href=n.appealHref;link.textContent='Email an appeal';
+  box.replaceChildren(...[h,p(n.reason),n.message?p('Message from VALE Connect: '+n.message):null,p(n.effect,'muted'),p(n.appeal,'muted'),link].filter(Boolean));
+  box.hidden=false;
  }
  function closeCropper(){if(cropping?.bitmap?.close)cropping.bitmap.close();cropping=null;if($('card-photo-cropper'))$('card-photo-cropper').hidden=true}
  function openEditor(row,values){
@@ -96,7 +112,7 @@
   $('multi-slug').value=row?row.slug:'';$('multi-slug').readOnly=!!row;
   $('card-slug-hint').textContent=row?'Your card’s link name is fixed so printed QR codes keep working.':'Lowercase letters, numbers and hyphens. It can’t be changed later, so printed QR codes keep working.';
   // New cards always start as private drafts (the database requires it); publishing comes after review.
-  $('multi-published').checked=row?!!row.published:false;$('card-public-field').hidden=!row;$('card-draft-note').hidden=!!row;
+  $('multi-published').checked=row?!!row.published:false;$('card-public-field').hidden=!row||holds.has(row.id);$('card-draft-note').hidden=!!row;
   // Sharing back is on unless the owner turned it off (the database default is on).
   if($('multi-accept-shares'))$('multi-accept-shares').checked=row?row.accept_shares!==false:true;
   $('card-delete-section').hidden=!row;$('card-delete-section').open=false;$('card-delete-understand').checked=false;
@@ -116,6 +132,10 @@
   const e=epoch,owner=user.id;
   const data=await window.ValeAccountLists.read(client,'public_cards',owner,()=>e===epoch&&owner===user?.id);
   if(e!==epoch||owner!==user?.id)return false;
+  if(holdTools&&typeof client.rpc==='function'){
+   // If this can't be read, the last answer is kept; the database still refuses to publish a hidden card.
+   try{const {data:held,error}=await client.rpc('get_my_card_holds');if(e!==epoch||owner!==user?.id)return false;if(!error)holds=holdTools.byCard(held)}catch{}
+  }
   cards=data.sort((a,b)=>String(a.updated_at).localeCompare(String(b.updated_at))||a.id.localeCompare(b.id));
   selected=cards.find(c=>c.id===selected?.id)||cards[0]||null;loaded=true;
   render();announce();window.ValeUsage?.refresh();
@@ -297,7 +317,7 @@
  window.addEventListener('vale-usage-updated',()=>{if(editing===null)render();else $('card-label-field').hidden=!multi()});
  window.addEventListener('vale-account-ready',event=>{
   const next=event.detail;if(user?.id===next.user?.id&&client===next.client)return;
-  epoch++;client=next.client;user=next.user;cards=[];selected=null;editing=null;dirty=false;busy=false;loaded=false;message('');
+  epoch++;client=next.client;user=next.user;cards=[];holds=new Map();selected=null;editing=null;dirty=false;busy=false;loaded=false;message('');
   closeCropper();for(const url of shown.values())if(url)URL.revokeObjectURL?.(url);shown.clear();media={photo:blank(),logo:blank()};
   fields.forEach(k=>{$('multi-'+k).value=''});render();announce();
   if(user)void run(async()=>{await listCards()});
