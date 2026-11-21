@@ -17,6 +17,7 @@ through its migration tooling; SQL run in the dashboard's SQL Editor isn't liste
 | `20261114000000_add_card_reports.sql` | 2026-11-13, 03:01 UTC | Applied once through Supabase's migration endpoint, exactly as committed at `22c8aa2` (without the file's BEGIN/COMMIT), after a verified backup and rolled-back dry runs. Enabled `pg_cron` and scheduled `vale-report-cleanup` (daily, 04:23 UTC) | Yes, as version `20261113030137` (`add_card_reports`) |
 | `20261121000000_add_admin_get_report.sql` | 2026-11-21, 18:32 UTC | Applied once through Supabase's migration endpoint, exactly as committed at `4edb5d0` (sha256 `18401c2a…`, without the file's BEGIN/COMMIT), after a verified backup and rolled-back dry runs | Yes, as version `20261121183210` (`add_admin_get_report`) |
 | `20261121000100_lift_restriction_keeps_card_private.sql` | 2026-11-21, 18:32 UTC | Applied once through Supabase's migration endpoint, exactly as committed at `4edb5d0` (sha256 `2ab48142…`, without the file's BEGIN/COMMIT), directly after the one above | Yes, as version `20261121183224` (`lift_restriction_keeps_card_private`) |
+| `20261122000000_lift_marks_hidden_notice_read.sql` | 2026-11-21, 20:04 UTC | Applied once through Supabase's migration endpoint, exactly as committed at `4e4fbd8` (sha256 `18ce5d22…`, without the file's BEGIN/COMMIT), after a verified backup and rolled-back dry runs | Yes, as version `20261121200431` (`lift_marks_hidden_notice_read`) |
 
 Verified after applying, on 2026-11-08 at 22:55 UTC:
 - Private `card-images` bucket: 1 MB limit; WebP, PNG and JPEG only.
@@ -68,6 +69,14 @@ Verified after Report This Card stage C (`admin_get_report`, and lifting a restr
 - As a visitor, the API refuses `admin_get_report`, `admin_restore_card` and `admin_list_reports`, and doesn't expose the private schema.
 
 The reverse, in this order: `supabase/rollback/20261121000100_lift_restriction_keeps_card_private.down.sql` (restores the stage A function; no data changes), then `supabase/rollback/20261121000000_add_admin_get_report.down.sql`.
+
+Verified after "lifting marks the card hidden notice read", on 2026-11-21 UTC:
+- `admin_restore_card` is identical to the repository (definition, SECURITY DEFINER, search_path, permissions).
+- The one-time tidy marked exactly 1 notice read: the "card hidden" notice from the manual moderation test, which is kept, not deleted. The other 2 notices have identical content fingerprints.
+- Every other app and moderation table is unchanged.
+- The admin and two-step checks still hold on the real admin record. All 18 live test files pass, rolled back. The launch gate passes 16 of 16. The live structure matches the repository (388 items, 0 differences).
+
+The reverse is `supabase/rollback/20261122000000_lift_marks_hidden_notice_read.down.sql`, before the ones above. Notices already marked read stay read.
 
 ## Production
 

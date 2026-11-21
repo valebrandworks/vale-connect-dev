@@ -33,6 +33,9 @@ SELECT public.admin_hide_card(current_setting('vale.r2')::uuid, 'Asked visitors 
 -- Only an admin with two-step sign-in can lift a restriction.
 RESET ROLE;
 DO $$ BEGIN
+ -- While hidden, each card has an unread "card hidden" notice.
+ IF (SELECT count(*) FROM public.notifications WHERE kind = 'card_hidden' AND read_at IS NULL AND card_id IN (current_setting('vale.c1')::uuid, current_setting('vale.c2')::uuid)) <> 2
+  THEN RAISE EXCEPTION 'CHECK: hiding did not leave an unread notice for each card'; END IF;
  IF has_function_privilege('anon', 'public.admin_restore_card(uuid, text)', 'EXECUTE') OR has_function_privilege('service_role', 'public.admin_restore_card(uuid, text)', 'EXECUTE')
   THEN RAISE EXCEPTION 'CHECK: visitors or the server role may lift restrictions'; END IF;
 END $$;
@@ -69,6 +72,11 @@ END $$;
 RESET ROLE;
 DO $$ BEGIN
  IF EXISTS (SELECT 1 FROM vale_private.card_holds WHERE card_id IN (current_setting('vale.c1')::uuid, current_setting('vale.c2')::uuid)) THEN RAISE EXCEPTION 'CHECK: the restriction was not removed'; END IF;
+ -- The out-of-date "card hidden" notices are marked read; they are kept, not deleted.
+ IF EXISTS (SELECT 1 FROM public.notifications WHERE kind = 'card_hidden' AND read_at IS NULL AND card_id IN (current_setting('vale.c1')::uuid, current_setting('vale.c2')::uuid))
+  THEN RAISE EXCEPTION 'CHECK: a "card hidden" notice stayed unread after the restriction was lifted'; END IF;
+ IF (SELECT count(*) FROM public.notifications WHERE kind = 'card_hidden' AND card_id IN (current_setting('vale.c1')::uuid, current_setting('vale.c2')::uuid)) <> 2
+  THEN RAISE EXCEPTION 'CHECK: a "card hidden" notice was deleted'; END IF;
  IF EXISTS (SELECT 1 FROM public.public_cards WHERE id IN (current_setting('vale.c1')::uuid, current_setting('vale.c2')::uuid) AND published)
   THEN RAISE EXCEPTION 'CHECK: lifting a restriction published a card'; END IF;
  IF EXISTS (SELECT 1 FROM public.get_public_card(current_setting('vale.s1'))) OR EXISTS (SELECT 1 FROM public.get_public_card(current_setting('vale.s2')))

@@ -77,7 +77,9 @@ const getFn = (find, replace = '') => {
 };
 // Lifting a restriction (admin_restore_card as it is now), with one rule changed.
 const LIFT_SQL = 'supabase/migrations/20261121000100_lift_restriction_keeps_card_private.sql', LIFT_DOWN = 'supabase/rollback/20261121000100_lift_restriction_keeps_card_private.down.sql';
-const liftSql = sql(LIFT_SQL).replace(/\r\n/g, '\n');
+// Sabotages start from the newest admin_restore_card (lifting also marks the "card hidden" notice read).
+const NOTICE_SQL = 'supabase/migrations/20261122000000_lift_marks_hidden_notice_read.sql', NOTICE_DOWN = 'supabase/rollback/20261122000000_lift_marks_hidden_notice_read.down.sql';
+const liftSql = sql(NOTICE_SQL).replace(/\r\n/g, '\n');
 const liftFn = (find, replace = '') => {
   const start = liftSql.indexOf('CREATE OR REPLACE FUNCTION public.admin_restore_card('), end = liftSql.indexOf('\nEND $$;', start) + 8;
   const body = liftSql.slice(start, end);
@@ -115,6 +117,8 @@ const brokenRules = [
   ['lift: not in the audit trail', LIFT, liftFn(" INSERT INTO vale_private.moderation_actions(admin_id, action, report_id, card_id, note) VALUES (uid, 'restore_card', hold.report_id, p_card_id, v_note);\n")],
   ['lift: no note needed', LIFT, liftFn('vale_private.clean_note(p_note, true)', 'vale_private.clean_note(p_note, false)')],
   ['lift: no admin check', LIFT, liftFn('uid uuid := vale_private.require_admin();', 'uid uuid := auth.uid();')],
+  ['lift: the "card hidden" notice stays unread', LIFT, liftFn(" UPDATE public.notifications SET read_at = now() WHERE owner_id = v_owner AND card_id = p_card_id AND kind = 'card_hidden' AND read_at IS NULL;\n")],
+  ['lift: the "card hidden" notice is deleted', LIFT, liftFn(" UPDATE public.notifications SET read_at = now() WHERE owner_id = v_owner AND card_id = p_card_id AND kind = 'card_hidden' AND read_at IS NULL;\n", " DELETE FROM public.notifications WHERE owner_id = v_owner AND card_id = p_card_id AND kind = 'card_hidden';\n")],
   ['lift: visitors can call it', LIFT, 'GRANT EXECUTE ON FUNCTION public.admin_restore_card(uuid, text) TO anon'],
   ['report lookup: visitors can open a report', GET_REPORT, 'GRANT EXECUTE ON FUNCTION public.admin_get_report(uuid) TO anon'],
   ['report lookup: the server role can open a report', GET_REPORT, 'GRANT EXECUTE ON FUNCTION public.admin_get_report(uuid) TO service_role'],
@@ -256,6 +260,7 @@ await ucDb.close();
 // Reports: the rollback removes the feature (leaving cards and notifications as they were), and re-applying restores the same structure.
 const crDb = await rebuild(repo);
 const crBefore = await snapshotOf(crDb);
+await crDb.exec(sql(NOTICE_DOWN));
 await crDb.exec(sql(LIFT_DOWN));
 await crDb.exec(sql(GET_DOWN));
 const getDown = await snapshotOf(crDb);
@@ -269,6 +274,7 @@ report(crOld, 'reports rollback: the reports test notices the feature is gone');
 await crDb.exec(sql(REPORTS_SQL));
 await crDb.exec(sql(GET_SQL));
 await crDb.exec(sql(LIFT_SQL));
+await crDb.exec(sql(NOTICE_SQL));
 const crAgain = await snapshotOf(crDb);
 // Re-adding the notice column gives it a new position; everything else must match exactly.
 const noPosition = s => JSON.stringify({ ...s, columns: s.columns.map(({ position, ...c }) => c) });
@@ -278,6 +284,7 @@ await crDb.close();
 // Lifting a restriction: the rollback puts back exactly the stage A function, and re-applying restores the same structure.
 const liftDb = await rebuild(repo), stageA = await rebuild(repo);
 const liftBefore = await snapshotOf(liftDb);
+await liftDb.exec(sql(NOTICE_DOWN));
 await liftDb.exec(sql(LIFT_DOWN));
 await stageA.exec(reportFn('public.admin_restore_card', 'BEGIN', 'BEGIN'));
 const restoreDef = async database => (await database.query(`SELECT pg_get_functiondef('public.admin_restore_card(uuid, text)'::regprocedure) AS d`)).rows[0].d;
@@ -289,8 +296,35 @@ let liftOld = false;
 try { await liftDb.exec(sql(LIFT)); } catch { liftOld = true; await liftDb.exec('ROLLBACK'); }
 report(liftOld, 'lift rollback: the lift test notices cards are published again');
 await liftDb.exec(sql(LIFT_SQL));
+await liftDb.exec(sql(NOTICE_SQL));
 report(JSON.stringify(await snapshotOf(liftDb)) === JSON.stringify(liftBefore), 'lift: re-applying after rollback restores the same structure');
 await liftDb.close(); await stageA.close();
+
+// Lifting marks the "card hidden" notice read: the rollback puts back exactly the 20261121000100 function, the lift test
+// notices, re-applying restores the same structure, and the one-time tidy marks only notices of cards no longer hidden.
+const noticeDb = await rebuild(repo), previous = await rebuild(repo);
+const noticeBefore = await snapshotOf(noticeDb);
+await noticeDb.exec(sql(NOTICE_DOWN));
+const prevBody = sql(LIFT_SQL).replace(/\r\n/g, '\n'), prevStart = prevBody.indexOf('CREATE OR REPLACE FUNCTION public.admin_restore_card('), prevEnd = prevBody.indexOf('\nEND $$;', prevStart) + 8;
+await previous.exec(prevBody.slice(prevStart, prevEnd));
+report(await restoreDef(noticeDb) === await restoreDef(previous) && !/card_hidden/.test(await restoreDef(noticeDb)), 'notice rollback: puts back the 20261121000100 function exactly');
+report(withoutRestore(await snapshotOf(noticeDb)) === withoutRestore(noticeBefore), 'notice rollback: changes nothing else');
+let noticeOld = false;
+try { await noticeDb.exec(sql(LIFT)); } catch { noticeOld = true; await noticeDb.exec('ROLLBACK'); }
+report(noticeOld, 'notice rollback: the lift test notices the "card hidden" notice stays unread');
+await noticeDb.exec(sql(NOTICE_SQL));
+report(JSON.stringify(await snapshotOf(noticeDb)) === JSON.stringify(noticeBefore), 'notice: re-applying after rollback restores the same structure');
+await noticeDb.exec(`INSERT INTO auth.users VALUES ('22222222-2222-4222-8222-222222222222', 'tidy@example.invalid');
+ INSERT INTO public.public_cards(id, owner_id, slug, display_name, published) VALUES
+  ('33333333-3333-4333-8333-333333333331', '22222222-2222-4222-8222-222222222222', 'tidy-free-1', 'Tidy Free', false),
+  ('33333333-3333-4333-8333-333333333332', '22222222-2222-4222-8222-222222222222', 'tidy-held-2', 'Tidy Held', false);
+ INSERT INTO vale_private.card_holds(card_id, category, owner_message) VALUES ('33333333-3333-4333-8333-333333333332', 'spam', 'TEST');
+ INSERT INTO public.notifications(owner_id, kind, card_id) VALUES ('22222222-2222-4222-8222-222222222222', 'card_hidden', '33333333-3333-4333-8333-333333333331'),
+  ('22222222-2222-4222-8222-222222222222', 'card_hidden', '33333333-3333-4333-8333-333333333332'), ('22222222-2222-4222-8222-222222222222', 'card_restored', '33333333-3333-4333-8333-333333333331');`);
+await noticeDb.exec(sql(NOTICE_SQL));
+const tidy = (await noticeDb.query(`SELECT card_id::text AS card, kind, read_at IS NOT NULL AS read FROM public.notifications WHERE owner_id = '22222222-2222-4222-8222-222222222222' ORDER BY card_id, kind`)).rows.map(r => r.card.slice(-1) + ':' + r.kind + ':' + r.read).join(' ');
+report(tidy === '1:card_hidden:true 1:card_restored:false 2:card_hidden:false', 'notice: the one-time tidy marks only "card hidden" notices of cards no longer hidden (' + tidy + ')');
+await noticeDb.close(); await previous.close();
 
 // The launch gate passes on the finished design and fails if a protection is missing.
 const gateRows = async database => (await database.query(sql('supabase/inspection/launch_gate.sql'))).rows;
