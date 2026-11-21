@@ -52,7 +52,7 @@ const csp=page.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)[1
 for(const rule of ["default-src 'none'","script-src 'self' https://cdn.jsdelivr.net","connect-src https://jlprxnmdvoloahssjlnu.supabase.co","base-uri 'none'","form-action 'none'"])assert.ok(csp.includes(rule),'content policy: '+rule);
 assert.doesNotMatch(csp,/unsafe-inline|unsafe-eval/,'no inline or evaluated scripts');
 assert.doesNotMatch(page,/<script>|<script [^>]*>[^<]/,'no inline scripts');assert.doesNotMatch(page,/ style="/,'no inline styles');
-assert.match(page,/supabase-js@2\.118\.0\/dist\/umd\/supabase\.js"><\/script><script src="ui-ask\.js\?v=\d+"><\/script><script src="report-core\.js\?v=\d+"><\/script><script src="admin-core\.js\?v=\d+"><\/script><script src="admin\.js\?v=\d+"><\/script>/);
+assert.match(page,/<script src="config\.js\?v=\d+"><\/script><script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@2\.118\.0\/dist\/umd\/supabase\.js" integrity="sha384-[A-Za-z0-9+\/=]+" crossorigin="anonymous"><\/script><script src="ui-ask\.js\?v=\d+"><\/script><script src="report-core\.js\?v=\d+"><\/script><script src="admin-core\.js\?v=\d+"><\/script><script src="admin\.js\?v=\d+"><\/script>/);
 assert.doesNotMatch(ui+coreSrc+page,/innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/,'text is never treated as HTML or code');
 assert.doesNotMatch(ui+coreSrc,/localStorage|sessionStorage|indexedDB|caches\./,'report data is never stored in the browser');
 assert.doesNotMatch(ui,/\.from\(|\.storage\b|functions\.invoke/,'no tables, files or server functions: admin functions only');
@@ -134,8 +134,8 @@ function scenario(sources,setup={}){
   },
  };
  const window={supabase:{createClient:(url,key,options)=>{sim.clientOptions={url,key,options};return client}},ValeAsk:async(text,options)=>{sim.asks.push({text,options});return sim.askAnswer}};
- const context={window,document:doc,console,setTimeout:(fn,ms)=>{sim.timers.push({fn,ms});return sim.timers.length},clearTimeout:id=>{if(sim.timers[id-1])sim.timers[id-1].fn=null}};
- window.window=window;vm.createContext(context);
+ const context={window,document:doc,location:{hostname:'dev.valebrandworks.com'},console,setTimeout:(fn,ms)=>{sim.timers.push({fn,ms});return sim.timers.length},clearTimeout:id=>{if(sim.timers[id-1])sim.timers[id-1].fn=null}};
+ window.window=window;vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);
  vm.runInContext(read('report-core.js'),context);vm.runInContext(sources.core,context);vm.runInContext(sources.ui,context);
 
  const settle=async()=>{for(let i=0;i<12;i++)await new Promise(r=>setImmediate(r))};

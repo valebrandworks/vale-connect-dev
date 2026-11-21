@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><meta name="theme-color" content="#111317"><title>VALE Connect card</title><link rel="stylesheet" href="styles.css?v=21"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png"><meta name="apple-mobile-web-app-title" content="VALE Dev"></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://jlprxnmdvoloahssjlnu.supabase.co; frame-src https://challenges.cloudflare.com; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex"><meta name="theme-color" content="#111317"><title>VALE Connect card</title><link rel="stylesheet" href="styles.css?v=21"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png"><meta name="apple-mobile-web-app-title" content="VALE Dev"></head><body>
 <main class="wrap" style="padding-bottom:40px">
  <p id="status" class="muted center" role="status" style="padding:40px 0">Loading card…</p>
  <section id="profile" hidden>
@@ -7,35 +7,6 @@
   <div id="shareBack" class="panel share-back" style="margin-top:14px" hidden></div>
   <div id="publicCloudSave" class="panel" style="margin-top:14px"></div>
  </section>
- <p class="footer">Shared with VALE Connect · <a href="./">Create your own card</a><span id="report-link-wrap" hidden> · <a id="report-link" href="report.html">Report this card</a></span></p>
+ <p class="footer">Shared with VALE Connect, a product of VALE Brandworks LLC · <a href="./">Create your own card</a><span id="report-link-wrap" hidden> · <a id="report-link" href="report.html">Report this card</a></span></p>
 </main>
-<script src="ui-ask.js?v=10"></script><script src="platform-icons.js?v=10"></script><script src="card-view.js?v=12"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"></script><script src="cards-core.js?v=11"></script><script src="card-images.js?v=2"></script><script src="connections-core.js?v=5"></script><script src="account-lists.js?v=7"></script><script src="cloud-connections-core.js?v=13"></script><script src="cloud-save-ui.js?v=10"></script><script src="share-back-core.js?v=1"></script><script src="share-back.js?v=1"></script><script>
-(async()=>{'use strict';
-const $=id=>document.getElementById(id);
-const slug=new URLSearchParams(location.search).get('u')||'';
-if(!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)||slug.length<3||slug.length>60){$('status').textContent='This card link isn’t valid.';return}
-if(!window.supabase){$('status').textContent='This card can’t load right now. Try again later.';return}
-const client=window.supabase.createClient('https://jlprxnmdvoloahssjlnu.supabase.co','sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_');
-client.auth.getUser().then(({data})=>window.dispatchEvent(new CustomEvent('vale-account-ready',{detail:{client,user:data?.user||null}}))).catch(()=>{});
-client.auth.onAuthStateChange((_event,session)=>window.dispatchEvent(new CustomEvent('vale-account-ready',{detail:{client,user:session?.user||null}})));
-try{
- const {data:found,error}=await client.rpc('get_public_card',{card_slug:slug});
- if(error)throw error;
- const data=found?.[0]||null;
- if(!data){$('status').textContent='This card is not available.';return}
- const values=window.ValeCardTools.toEditor(data),images=window.ValeCardImages;
- const shown={photoUrl:null,logoUrl:null};
- const draw=()=>$('card').replaceChildren(window.ValeCardView.render(values,{preset:data.appearance,...shown}));
- draw();
- // Images are private storage: a visitor can download them only while this card is published.
- for(const [key,path] of [['photoUrl',data.photo_path],['logoUrl',data.logo_path]])if(path&&images)images.objectUrl(client,path).then(url=>{if(url){shown[key]=url;draw()}}).catch(()=>{});
- $('save-contact').onclick=async()=>{let photo='';if(data.photo_path&&images){try{photo=await images.contactPhoto(await images.blobOf(client,data.photo_path))}catch{}}const url=URL.createObjectURL(new Blob([window.ValeCardTools.vcard(values,photo)],{type:'text/vcard;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=slug+'.vcf';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000)};
- // Sharing back is offered only if the owner allows it; the server checks this again.
- window.ValeShareBack?.mount('shareBack',{card:{id:data.id,display_name:data.display_name,accept_shares:data.accept_shares===true},slug});
- window.ValeCloudSave?.mount('publicCloudSave',values,{cardId:data.id,url:location.href});
- // A discreet way to report the card, shown only for a card that loaded (published cards only).
- $('report-link').href='report.html?u='+encodeURIComponent(slug);$('report-link-wrap').hidden=false;
- $('status').hidden=true;$('profile').hidden=false;document.title=data.display_name+' · VALE Connect';
-}catch(e){$('status').textContent='This card can’t load right now. Try again later.';console.error('Public card load failed',e)}
-})();
-</script></body></html>
+<script src="config.js?v=1"></script><script src="ui-ask.js?v=10"></script><script src="platform-icons.js?v=10"></script><script src="card-view.js?v=12"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js" integrity="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK" crossorigin="anonymous"></script><script src="cards-core.js?v=11"></script><script src="card-images.js?v=2"></script><script src="connections-core.js?v=6"></script><script src="account-lists.js?v=7"></script><script src="cloud-connections-core.js?v=13"></script><script src="cloud-save-ui.js?v=10"></script><script src="share-back-core.js?v=2"></script><script src="share-back.js?v=2"></script><script src="card-page.js?v=1"></script></body></html>

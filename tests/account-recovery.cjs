@@ -6,8 +6,8 @@ function harness(result={error:null}){
  const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,{value:'',textContent:'',hidden:false,handlers:{},addEventListener(n,f){this.handlers[n]=f}});return elements.get(id)};
  const calls={reset:[],update:[]};let auth,clicked=0;
  const client={auth:{getUser:async()=>({data:{user:null}}),onAuthStateChange:fn=>auth=fn,resetPasswordForEmail:async(email,o)=>{calls.reset.push({email,...o});return result},updateUser:async u=>{calls.update.push(u);return result}},from(){return {select(){return this},eq(){return this},maybeSingle:async()=>({data:null})}}};
- const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){}},document:{getElementById:get,addEventListener(){},hidden:false,querySelector:()=>({click(){clicked++}})},localStorage:{getItem:()=>null,setItem(){}},setInterval:()=>1,clearInterval(){},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},confirm:()=>true,location:{origin:'https://dev.valebrandworks.com',pathname:'/'}};
- vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'auth-core.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-auth.js'),'utf8'),context);
+ const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){}},document:{getElementById:get,addEventListener(){},hidden:false,querySelector:()=>({click(){clicked++}})},localStorage:{getItem:()=>null,setItem(){}},setInterval:()=>1,clearInterval(){},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},confirm:()=>true,location:{hostname:'dev.valebrandworks.com',origin:'https://dev.valebrandworks.com',pathname:'/'}};
+ vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'auth-core.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-auth.js'),'utf8'),context);
  return {get,calls,clicked:()=>clicked,event:(name,user)=>auth(name,user?{user}:null)};
 }
 (async()=>{
@@ -31,7 +31,7 @@ function harness(result={error:null}){
  h=harness();await settle();h.get('account-home').hidden=false;h.event('INITIAL_SESSION',null);assert.equal(h.get('account-home').hidden,true);assert.equal(h.get('account-signed-out').hidden,false);assert.equal(h.get('cloud-session').textContent,'Not signed in');
  h.event('SIGNED_IN',{id:'a',email:'a@example.invalid'});assert.equal(h.get('account-home').hidden,false);assert.equal(h.get('account-signed-out').hidden,true);assert.equal(h.get('cloud-session').textContent,'a@example.invalid');
  // Public card page uses the lookup, never the table.
- const page=fs.readFileSync(path.join(root,'p.html'),'utf8');assert.match(page,/client\.rpc\('get_public_card'/);assert.doesNotMatch(page,/from\('public_cards'\)/);
+ const page=fs.readFileSync(path.join(root,'card-page.js'),'utf8');assert.match(page,/client\.rpc\('get_public_card'/);assert.doesNotMatch(page,/from\('public_cards'\)/);
  // Archived connections leave the totals, and the core sends a guarded update.
  const core=require(path.join(root,'cloud-connections-core.js'));
  assert.equal(core.overview([],[{next_step:'Follow up',archived_at:'2026-01-01'},{next_step:'Follow up'}],'2026-11-04').count,1);

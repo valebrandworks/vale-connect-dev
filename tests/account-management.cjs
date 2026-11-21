@@ -6,7 +6,7 @@ const settle=async()=>{for(let i=0;i<10;i++)await new Promise(r=>setImmediate(r)
 async function usage(){
  const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,{textContent:''});return elements.get(id)};const handlers={};let pending=[];
  const context={window:{addEventListener:(n,f)=>handlers[n]=f},document:{getElementById:get}};
- vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'membership.js'),'utf8'),context);
+ vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'membership.js'),'utf8'),context);
  // Free has unlimited connections. A plan with a connection limit (none today) is still displayed correctly.
  const free={plan_name:'Free',max_cards:1,max_active_connections:null,card_count:1,active_connection_count:1500,archived_connection_count:0};
  const row={plan_name:'Limited test plan',max_cards:1,max_active_connections:1000,card_count:1,active_connection_count:3,archived_connection_count:0};
@@ -37,8 +37,8 @@ async function accountDeletion(){
  let order=[],signInError=null,rpcError=null,auth;
  const client={auth:{getUser:async()=>({data:{user:null}}),onAuthStateChange:fn=>auth=fn,signInWithPassword:async c=>{order.push('signin:'+c.email);return {error:signInError}},signOut:async o=>{order.push('signout:'+o?.scope);return {error:null}}},rpc:async(n,a)=>{order.push(n+':'+a.confirm_email);return {error:rpcError}},from(){return {select(){return this},eq(){return this},maybeSingle:async()=>({data:null})}}};
  let imagesFail=false;
- const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){},ValeCards:{removeAllImages:async()=>{order.push('images');if(imagesFail)throw Error('A card changed on another device. Nothing was deleted. Try again.')}}},document:{getElementById:get,addEventListener(){},hidden:false},localStorage:{getItem:()=>null,setItem(){}},setInterval:()=>1,clearInterval(){},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},confirm:()=>{throw new Error('account deletion must not depend on a browser dialog')},location:{origin:'https://dev.valebrandworks.com',pathname:'/'}};
- vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'auth-core.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-auth.js'),'utf8'),context);await settle();
+ const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){},ValeCards:{removeAllImages:async()=>{order.push('images');if(imagesFail)throw Error('A card changed on another device. Nothing was deleted. Try again.')}}},document:{getElementById:get,addEventListener(){},hidden:false},localStorage:{getItem:()=>null,setItem(){}},setInterval:()=>1,clearInterval(){},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},confirm:()=>{throw new Error('account deletion must not depend on a browser dialog')},location:{hostname:'dev.valebrandworks.com',origin:'https://dev.valebrandworks.com',pathname:'/'}};
+ vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'auth-core.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-auth.js'),'utf8'),context);await settle();
  const click=()=>get('cloud-delete-account').handlers.click(),status=()=>get('cloud-delete-status').textContent;
  await click();assert.equal(order.length,0,'nothing while signed out');
  auth('SIGNED_IN',{user:{id:'a',email:'Owner@example.invalid'}});await settle();
@@ -58,7 +58,7 @@ async function connections(){
  let records=[{id:'r1',owner_id:'a',full_name:'Active Person',revision:0,next_step:'Follow up'},{id:'r2',owner_id:'a',full_name:'Old Person',revision:0,next_step:'Follow up',archived_at:'2026-01-01T00:00:00Z'}],events={},consent=true,refreshed=0;
  const fake={...core,list:async()=>records.map(x=>structuredClone(x)),remove:async(_c,_o,current)=>{const i=records.findIndex(x=>x.id===current.id&&x.revision===current.revision);if(i<0)return null;records.splice(i,1);return {id:current.id}},setArchived:async(_c,_o,current,archived)=>{const row=records.find(x=>x.id===current.id);row.archived_at=archived?'2026-11-04T00:00:00Z':null;row.revision++;return structuredClone(row)}};
  const context={window:{ValeCloudConnections:fake,ValeConnections:local,ValeUsage:{refresh:()=>{refreshed++}},addEventListener:(n,f)=>events[n]=f,dispatchEvent(){}},CustomEvent:function(t,o){this.type=t;this.detail=o.detail},document:{getElementById:get,createElement:()=>new El(),createTextNode:t=>({textContent:t}),addEventListener(){},hidden:false},localStorage:{getItem:()=>'[]'},navigator:{onLine:true},setInterval:()=>1,clearInterval(){},structuredClone,confirm:()=>consent};
- vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-connections.js'),'utf8'),context);
+ vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'cloud-connections.js'),'utf8'),context);
  events['vale-account-ready']({detail:{client:{},user:{id:'a',email:'a@example.invalid'}}});await settle();
  const nameOf=x=>x.children[1]?.children[0]?.textContent??x.textContent,list=()=>get('cloud-contacts-list').children.map(nameOf);
  assert.deepEqual(list(),['Active Person']);assert.equal(get('cloud-contacts-count').textContent,'1');

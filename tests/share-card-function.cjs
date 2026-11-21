@@ -49,6 +49,7 @@ async function suite(fn, rebuild) {
       if (token === 'secret-rejected') return respond(200, { success: false, 'error-codes': ['invalid-input-secret'] });
       if (token === 'fail') return respond(200, { success: false, 'error-codes': ['invalid-input-response'] });
       if (token === 'wrong-host') return respond(200, { success: true, hostname: 'evil.example', action: fn.TURNSTILE_ACTION });
+      if (token === 'prod-host') return respond(200, { success: true, hostname: 'connect.valebrandworks.com', action: fn.TURNSTILE_ACTION });
       if (token === 'wrong-action') return respond(200, { success: true, hostname: 'dev.valebrandworks.com', action: 'login' });
       if (token === 'pass') return respond(200, { success: true, hostname: 'dev.valebrandworks.com', action: fn.TURNSTILE_ACTION });
       return respond(200, { success: false, 'error-codes': ['invalid-input-response'] });
@@ -191,7 +192,7 @@ async function suite(fn, rebuild) {
     r = await post(visitor({ turnstile_token: token }));
     eq([r.status, r.answer, r.outside], [status, answer, [fn.SITEVERIFY_URL]], 'refused without touching the database: ' + label);
   }
-  for (const [origin, label] of [['https://evil.example', 'another website'], ['', 'no origin'], ['http://dev.valebrandworks.com', 'plain http'], ['https://dev.valebrandworks.com.evil.example', 'a look-alike address']]) {
+  for (const [origin, label] of [['https://evil.example', 'another website'], ['', 'no origin'], ['http://dev.valebrandworks.com', 'plain http'], ['https://dev.valebrandworks.com.evil.example', 'a look-alike address'], ['https://connect.valebrandworks.com', 'the production site, on the development project']]) {
     r = await post(visitor(), { origin });
     eq([r.status, r.answer, r.outside, r.res.headers.get('access-control-allow-origin')], [403, 'forbidden_origin', [], null], 'refused: ' + label);
   }
@@ -267,6 +268,18 @@ async function suite(fn, rebuild) {
   eq([c.res.status, c.res.headers.get('access-control-allow-origin'), c.res.headers.get('access-control-allow-methods')], [204, ORIGIN, 'POST, OPTIONS'], 'the allowed page passes the browser\'s preflight');
   c = await call('OPTIONS', { Origin: 'https://evil.example' });
   eq([c.res.status, c.res.headers.get('access-control-allow-origin')], [403, null], 'other websites fail the preflight');
+  // Each project serves only its own website: production's site never reaches development, and the reverse.
+  eq([fn.siteFor('https://jlprxnmdvoloahssjlnu.supabase.co')?.origin, fn.siteFor('https://uhribjaiyuwivzqxusur.supabase.co'+'/')?.origin, fn.siteFor('https://evil.supabase.co'), fn.siteFor('')], ['https://dev.valebrandworks.com', 'https://connect.valebrandworks.com', null, null], 'one website per project, none for others');
+  {
+    const prodH = handlerFor({ ...ENV, SUPABASE_URL: 'https://uhribjaiyuwivzqxusur.supabase.co' });
+    const pre = async o => prodH(new Request('https://x.invalid/share-card', { method: 'OPTIONS', headers: { Origin: o, 'Access-Control-Request-Method': 'POST' } }));
+    let p = await pre('https://connect.valebrandworks.com');
+    eq([p.status, p.headers.get('access-control-allow-origin')], [204, 'https://connect.valebrandworks.com'], 'the production project answers its own site');
+    p = await pre(ORIGIN);
+    eq([p.status, p.headers.get('access-control-allow-origin')], [403, null], 'the production project refuses the development site');
+  }
+  r = await post(visitor({ turnstile_token: 'prod-host' }));
+  eq([r.status, r.answer], [403, 'verification_failed'], 'a Turnstile pass issued for the production site is refused on development');
   c = await call('PUT', { Origin: ORIGIN });
   eq(c.res.status, 405, 'other methods are refused');
   for (const headers of [{}, { 'cf-connecting-ip': '203.0.113.99' }, { Origin: ORIGIN }]) {
@@ -299,7 +312,10 @@ async function suite(fn, rebuild) {
 // Each protection removed in turn: the checks must notice every one.
 const SABOTAGE = [
   ['Turnstile not checked', "const human = await verifyTurnstile(config, request.token, request.submissionId);", "const human = 'ok';"],
-  ['Turnstile website and form not checked', "if (!TURNSTILE_HOSTNAMES.includes(data.hostname) || data.action !== TURNSTILE_ACTION) return 'verification_failed';", ''],
+  ['Turnstile website and form not checked', "if (!site || data.hostname !== site.turnstileHostname || data.action !== TURNSTILE_ACTION) return 'verification_failed';", ''],
+  ['Turnstile website not checked', '!site || data.hostname !== site.turnstileHostname || ', ''],
+  ['development project serves the production site', "origin: 'https://dev.valebrandworks.com', turnstileHostname: 'dev.valebrandworks.com'", "origin: 'https://connect.valebrandworks.com', turnstileHostname: 'connect.valebrandworks.com'"],
+  ['unknown projects served', 'return Object.hasOwn(SITES, key) ? SITES[key] : null;', "return Object.hasOwn(SITES, key) ? SITES[key] : SITES['https://jlprxnmdvoloahssjlnu.supabase.co'];"],
   ['member sign-in not verified', 'const member = await memberId(config, jwt);', "const member = { result: 'ok', id: '0a000000-0000-4000-8000-000000000002' };"],
   ['consent not checked', 'if (consent !== true) return null;', ''],
   ['unknown request keys accepted', 'if (Object.keys(body).some(key => !TOP_LEVEL[mode].includes(key))) return null;', ''],
@@ -315,7 +331,7 @@ const SABOTAGE = [
   ['network address sent to Cloudflare', 'idempotency_key: submissionId })', "idempotency_key: submissionId, remoteip: 'x' })"],
   ['missing settings tolerated', 'if (!config.ok) {', 'if (false) {'],
   ['short hash salt accepted', "hash_salt: get('SHARE_HASH_SALT').length >= MIN_SALT_LENGTH,", "hash_salt: get('SHARE_HASH_SALT') !== '',"],
-  ['origin not checked', "if (!ALLOWED_ORIGINS.includes(origin)) return finish('forbidden_origin', '', '');", ''],
+  ['origin not checked', "if (!allowed(origin)) return finish('forbidden_origin', '', '');", ''],
   ['database errors shown to the browser', "if (!res.ok) { log({ event: 'database', status: res.status }); return 'error'; }", 'if (!res.ok) return await res.text();'],
   ['secret key sent as a bearer token', "if (!config.serverKey.startsWith('sb_')) headers.Authorization", 'headers.Authorization'],
   ['oversized requests accepted', 'if (new TextEncoder().encode(text).length > MAX_BODY_BYTES)', 'if (false)'],

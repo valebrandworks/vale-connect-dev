@@ -1,7 +1,11 @@
 /* Browser-local imports only. Existing contacts and notes are never merged or overwritten. */
 (function(root){
  'use strict';
- const KEY='vale-connect-dev-v09-contacts';
+ // Browser-storage names start with this address's prefix (config.js), so production and development never share data.
+ // Where there is no web address (tests), the development prefix is used.
+ const config=root.ValeConfig||(typeof require==='function'?require('./config.js'):null);
+ const PREFIX=(config&&root.location?config.forHost(root.location.hostname)?.storagePrefix:null)||'vale-connect-dev-';
+ const KEY=PREFIX+'v09-contacts';
  const text=(v,max=1000)=>typeof v==='string'?v.trim().slice(0,max):'';
  const normalized=v=>text(v).replace(/\s+/g,' ').toLocaleLowerCase('en');
  const email=v=>text(v,120).toLowerCase();

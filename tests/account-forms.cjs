@@ -58,7 +58,7 @@ function page({turnstile=true,host='dev.valebrandworks.com',accountOpen=false}={
  if(turnstile)window.turnstile=ts;
  const document={getElementById:get,createElement:t=>new El('',t),createTextNode:t=>({textContent:t}),head:new El('head'),querySelector:()=>null,addEventListener(){}};
  const context={window,document,location:{hostname:host,origin:'https://'+host,pathname:'/'},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},Date,console};
- vm.createContext(context);vm.runInContext(read('auth-core.js'),context);vm.runInContext(read('cloud-auth.js'),context);
+ vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(read('auth-core.js'),context);vm.runInContext(read('cloud-auth.js'),context);
  return {get,calls,answers,ts,events,auth:(e,u)=>authFn(e,u?{user:u}:null),status:()=>get('cloud-auth-status').textContent,
   submit:()=>get('cloud-auth').handlers.submit({preventDefault(){}}),click:id=>get(id).handlers.click()};
 }
@@ -130,8 +130,10 @@ const shown=(p,ids)=>Object.fromEntries(ids.map(id=>[id,!p.get(id).hidden]));
  await p.click('cloud-delete-account');assert.match(p.get('cloud-delete-status').textContent,/security check.*Nothing was deleted/);assert.ok(!p.calls.some(c=>c[0]==='signIn'));
  d.callback('tok-d');p.get('cloud-delete-understand').checked=true;await p.click('cloud-delete-account');
  same(p.calls.find(c=>c[0]==='signIn'),['signIn',{email:'Owner@example.invalid',password:'pw',options:{captchaToken:'tok-d'}}]);assert.ok(p.calls.some(c=>c[0]==='delete_my_account'));
- // No security check where Turnstile isn't available: requests go without a token and the server decides.
- p=page({turnstile:false,host:'valebrandworks.github.io'});await settle();p.get('cloud-auth').handlers.focusin();p.get('cloud-email').value='a@example.invalid';p.get('cloud-password').value='pw';await p.submit();
- same(p.calls[0],['signIn',{email:'a@example.invalid',password:'pw',options:{}}]);
+ // Any other address (here, the old shared github.io address): no project at all, so sign-in is unavailable and nothing is sent.
+ p=page({turnstile:false,host:'valebrandworks.github.io'});await settle();p.get('cloud-auth').handlers.focusin?.();p.get('cloud-email').value='a@example.invalid';p.get('cloud-password').value='pw';await p.submit();
+ assert.equal(p.calls.length,0,'nothing is sent from an unknown address');assert.match(p.get('cloud-auth-status').textContent,/isn’t a VALE Connect address/);
+ // Locally (localhost), Cloudflare's published test key is used, never a real key.
+ assert.equal(require(require('node:path').join(root,'config.js')).forHost('localhost').turnstileSiteKey,'1x00000000000000000000AA');
  console.log('PASS: account rules (10-character minimum like the server, older passwords still sign in, agreement with Terms ready, plain messages that never reveal accounts); page security (no secrets, no HTML injection, rules load first); behaviour (screens, Turnstile only when used and on every sign-in, sign-up, reset, resend and delete re-check, fresh check after each request, show/hide, confirmation, agreement required and recorded, resend after an unconfirmed sign-in, double taps send once); accessibility (labels, live status, toggle state).');
 })().catch(e=>{console.error(e);process.exit(1)});

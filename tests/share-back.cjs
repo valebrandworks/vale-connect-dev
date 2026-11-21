@@ -36,16 +36,21 @@ assert.equal(core.outcome('shared','Ana Ruiz').text,'Your details were sent to A
 assert.match(core.markerValue(new Date('2026-11-09T10:00:00Z')),/^2026-11-09$/,'the device marker holds only a date');
 
 // ---------- Security: what the page code may and may not do ----------
-const page=read('p.html'),ui=read('share-back.js'),coreSrc=read('share-back-core.js');
+const html=read('p.html'),page=read('card-page.js'),ui=read('share-back.js'),coreSrc=read('share-back-core.js');
 assert.match(page,/client\.rpc\('get_public_card'/);assert.doesNotMatch(page+ui,/from\('public_cards'\)/,'the card being viewed comes only from the public lookup');
 assert.doesNotMatch(ui,/\.from\(|\.rpc\(|\.storage\b/,'the form never reads or writes tables, functions or storage directly');
 assert.match(ui,/window\.ValeAccountLists\.read\(client,'public_cards',owner,/,'a member\'s own cards come only from the owner-only reader');
 assert.doesNotMatch(ui+coreSrc,/innerHTML|outerHTML|insertAdjacentHTML|document\.write/,'typed text is never treated as HTML');
-assert.equal((ui.match(/fetch\(/g)||[]).length,1,'one network call');assert.match(ui,/fetch\(core\.FUNCTION_URL,core\.request\(/);
-assert.equal(core.FUNCTION_URL,'https://jlprxnmdvoloahssjlnu.supabase.co/functions/v1/share-card','the development share function');
+assert.equal((ui.match(/fetch\(/g)||[]).length,1,'one network call');assert.match(ui,/fetch\(core\.functionUrl\(location\.hostname\),core\.request\(/);
+assert.equal(core.functionUrl('dev.valebrandworks.com'),'https://jlprxnmdvoloahssjlnu.supabase.co/functions/v1/share-card','the development share function on the development site');
+assert.equal(core.functionUrl('connect.valebrandworks.com'),'https://uhribjaiyuwivzqxusur.supabase.co/functions/v1/share-card','the production share function on the production site');
+for(const host of ['valebrandworks.github.io','evil.example',''])assert.equal(core.functionUrl(host),null,'no share function on '+JSON.stringify(host));
+assert.equal(core.siteKey('connect.valebrandworks.com'),'0x4AAAAAAGMQcyUJYuAxhLXp','the production site uses its own Turnstile widget');
 assert.match(ui,/'https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js\?render=explicit'/);assert.match(ui,/action:'share-card'/,'the Turnstile action the server requires');
 assert.doesNotMatch(ui+coreSrc,/sb_secret|service_role|TURNSTILE_SECRET|SHARE_HASH_SALT/,'no secrets in the page');
-assert.match(page,/<script src="share-back-core\.js\?v=\d+"><\/script><script src="share-back\.js\?v=\d+"><\/script>/);
+assert.match(html,/<script src="share-back-core\.js\?v=\d+"><\/script><script src="share-back\.js\?v=\d+"><\/script><script src="card-page\.js\?v=\d+"><\/script><\/body>/);
+assert.doesNotMatch(html.replace(/<meta http-equiv="Content-Security-Policy" content="[^"]*">/,''),/<script>|jlprxnmdvoloahssjlnu|uhribjaiyuwivzqxusur|sb_publishable_/,'the card page has no inline script, and no project written in outside its security policy');
+assert.match(page,/const ENV=window\.ValeConfig\?\.forHost\(location\.hostname\)\|\|null;\nif\(!ENV\)/,'the card page loads nothing on an unknown address');
 assert.match(page,/accept_shares:data\.accept_shares===true/,'sharing back is offered only when the owner allows it');
 assert.match(read('index.html'),/id="multi-accept-shares" type="checkbox" checked/,'owners have a switch, on by default');
 
@@ -78,7 +83,7 @@ const window={ValeShareBackCore:null,ValeAccountLists:{read:async(client,table,o
  turnstile,crypto:globalThis.crypto,localStorage:{getItem:k=>storage.has(k)?storage.get(k):null,setItem:(k,v)=>storage.set(k,String(v))},addEventListener:(n,f)=>listeners[n]=f};
 const context={window,document:doc,location:{hostname:'dev.valebrandworks.com'},console,
  fetch:async(url,init)=>{fetches.push({url,init,body:JSON.parse(init.body)});const a=answers.shift();if(a==='throw')throw new TypeError('offline');return {json:async()=>({status:a})}}};
-vm.createContext(context);
+vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);
 vm.runInContext(coreSrc,context);vm.runInContext(ui,context);
 const host=new Node('div');host.id='shareBack';host.hidden=true;doc.body.append(host);
 const client={auth:{getSession:async()=>({data:{session}})}};

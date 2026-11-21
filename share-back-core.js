@@ -3,16 +3,16 @@
    people fix mistakes before sending. */
 (function(root){
  'use strict';
- const FUNCTION_URL='https://jlprxnmdvoloahssjlnu.supabase.co/functions/v1/share-card';
+ // Public settings for this web address (config.js). Not a security boundary: the server checks everything again.
+ const config=root.ValeConfig||(typeof require==='function'?require('./config.js'):null);
  const CONSENT_VERSION='2026-11-v1';
- // Turnstile site keys are public. On this computer, Cloudflare's published test key lets the page be checked;
- // the server never accepts its tokens. Any other address gets no form.
- const SITE_KEYS={'dev.valebrandworks.com':'0x4AAAAAAF5bZ3cludhKsLJJ','localhost':'1x00000000000000000000AA','127.0.0.1':'1x00000000000000000000AA'};
  const LIMITS={full_name:90,job_title:80,business_name:90,email:120,phone:40,website:300,note:300};
  // A member's own card: which column holds each field the server accepts, in the order shown.
  const MEMBER_FIELDS=[['full_name','display_name','Name'],['job_title','job_title','Title'],['business_name','business_name','Company'],['email','public_email','Email'],['phone','public_phone','Phone'],['website','website','Website'],['social_links','social_links','Social and other links']];
  const text=v=>String(v??'').replace(/[\u0000-\u001f\u007f]/g,' ').trim();
- const siteKey=hostname=>Object.hasOwn(SITE_KEYS,hostname)?SITE_KEYS[hostname]:null;
+ // The Turnstile site key (public) and the share-card address for this web address; none for any other address.
+ const siteKey=hostname=>config?.forHost(hostname)?.turnstileSiteKey||null;
+ const functionUrl=hostname=>config?config.functionUrl(hostname,'share-card'):null;
  const firstName=name=>text(name).split(/\s+/)[0]||'this person';
  const consentText=owner=>'By sharing, I agree to send my selected contact information to '+(text(owner)||'the card’s owner')+', who can save it in their private VALE Connect connections.';
  const emailOk=v=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);
@@ -65,6 +65,6 @@
  const markerKey=cardId=>'vale-shared-back:'+cardId;
  const markerValue=(now=new Date())=>now.toISOString().slice(0,10);
 
- const api={FUNCTION_URL,CONSENT_VERSION,LIMITS,siteKey,firstName,consentText,checkVisitor,memberOptions,checkMember,payload,request,outcome,markerKey,markerValue};
+ const api={functionUrl,CONSENT_VERSION,LIMITS,siteKey,firstName,consentText,checkVisitor,memberOptions,checkMember,payload,request,outcome,markerKey,markerValue};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeShareBackCore=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -13,8 +13,8 @@ async function signInOrder(){
  for(const next of [null,'b']){
   const {get,document}=dom();let authCallback,resolveInitial;
   const client={auth:{getUser:()=>new Promise(r=>resolveInitial=r),onAuthStateChange:fn=>authCallback=fn}};
-  const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){}},document,CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},location:{origin:'https://dev.valebrandworks.com',pathname:'/'}};
-  vm.createContext(context);vm.runInContext(read('auth-core.js'),context);vm.runInContext(read('cloud-auth.js'),context);
+  const context={window:{supabase:{createClient:()=>client},addEventListener(){},dispatchEvent(){}},document,CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},location:{hostname:'dev.valebrandworks.com',origin:'https://dev.valebrandworks.com',pathname:'/'}};
+  vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(read('auth-core.js'),context);vm.runInContext(read('cloud-auth.js'),context);
   authCallback(next?'SIGNED_IN':'SIGNED_OUT',next?{user:{id:next,email:next+'@example.invalid'}}:null);
   resolveInitial({data:{user:{id:'a',email:'a@example.invalid'}}});await settle();
   assert.equal(get('cloud-session').textContent,next?'b@example.invalid':'Not signed in');
@@ -46,7 +46,7 @@ async function signOutCleanup(){
   const listeners={},row=tools.toRow(inAccount?local:{...local,fullName:'Someone Else'});
   const client={from(){return {select(){return this},eq(){return this},maybeSingle:async()=>({data:null})}}};
   const context={window:{addEventListener:(n,f)=>listeners[n]=f,ValeCardTools:tools,ValeCards:{list:()=>[row]},ValeConnections:{readContacts:()=>[]}},document,localStorage:store,JSON};
-  context.window.window=context.window;context.window.document=document;vm.createContext(context);vm.runInContext(read('import-local.js'),context);
+  context.window.window=context.window;context.window.document=document;vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(read('import-local.js'),context);
   listeners['vale-account-ready']({detail:{client,user:{id:'a'}}});await settle();
   listeners['vale-card-selected']({detail:{loaded:true}});
   const offered=get('import-card-list').children;assert.equal(get('import-section').hidden,false);assert.equal(offered.length,1);
@@ -64,7 +64,7 @@ async function cardSwitching(){
  const tools=require(path.join(root,'cards-core.js')),view={render:()=>new El(),web:s=>s};
  const lists={read:(_c,_t,owner)=>new Promise(r=>pending.push({owner,r}))};
  const context={window:{addEventListener:(n,f)=>listeners[n]=f,dispatchEvent:e=>events.push(e),ValeCardTools:tools,ValeCardView:view,ValeAccountLists:lists},document,CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},crypto:{randomUUID:()=>'00000000-0000'},navigator:{onLine:true},Event:class{constructor(t){this.type=t}}};
- context.window.window=context.window;vm.createContext(context);vm.runInContext(read('cards.js'),context);
+ context.window.window=context.window;vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(read('cards.js'),context);
  listeners['vale-account-ready']({detail:{client:{},user:{id:'a'}}});await settle();
  listeners['vale-account-ready']({detail:{client:{},user:{id:'b'}}});await settle();
  pending.find(p=>p.owner==='a').r([{id:'card-a',owner_id:'a',card_label:'A',slug:'aaa-1',display_name:'Old account',published:true,revision:0,updated_at:'1'}]);await settle();

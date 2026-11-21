@@ -33,19 +33,22 @@ for(const status of ['received','invalid','verification_failed','too_large','net
 assert.equal(core.counter('abc'),'3 / 1,000');
 
 // ---------- Security: what the page code may and may not do ----------
-const page=read('report.html'),ui=read('report.js'),coreSrc=read('report-core.js'),card=read('p.html');
+const html=read('report.html'),page=read('report-page.js'),ui=read('report.js'),coreSrc=read('report-core.js'),card=read('card-page.js'),cardHtml=read('p.html');
 assert.match(page,/client\.rpc\('get_public_card',\{card_slug:slug\}\)/,'the card comes only from the public lookup');
 assert.match(page,/auth:\{persistSession:false,autoRefreshToken:false\}/,'the report page never uses or keeps a sign-in');
-assert.match(page,/<meta name="referrer" content="no-referrer">/,'the report page sends no referrer');
+assert.match(html,/<meta name="referrer" content="no-referrer">/,'the report page sends no referrer');
 assert.doesNotMatch(page+ui,/from\('|\.storage\b|getSession|access_token/,'no tables, storage or sign-in');
 assert.doesNotMatch(ui,/\.rpc\(/,'the form calls no database functions');
 assert.doesNotMatch(ui+coreSrc+page,/innerHTML|outerHTML|insertAdjacentHTML|document\.write/,'typed text is never treated as HTML');
-assert.equal((ui.match(/fetch\(/g)||[]).length,1,'one network call');assert.match(ui,/fetch\(core\.FUNCTION_URL,core\.request\(/);
-assert.equal(core.FUNCTION_URL,'https://jlprxnmdvoloahssjlnu.supabase.co/functions/v1/report-card','the development report function');
+assert.equal((ui.match(/fetch\(/g)||[]).length,1,'one network call');assert.match(ui,/fetch\(core\.functionUrl\(location\.hostname\),core\.request\(/);
+assert.equal(core.functionUrl('dev.valebrandworks.com'),'https://jlprxnmdvoloahssjlnu.supabase.co/functions/v1/report-card','the development report function on the development site');
+assert.equal(core.functionUrl('connect.valebrandworks.com'),'https://uhribjaiyuwivzqxusur.supabase.co/functions/v1/report-card','the production report function on the production site');
+assert.equal(core.functionUrl('evil.example'),null,'no report function on other addresses');
 assert.match(ui,/'https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js\?render=explicit'/);assert.match(ui,/action:'report-card'/,'the Turnstile action the server requires');
 assert.doesNotMatch(ui+coreSrc+page,/sb_secret|service_role|TURNSTILE_SECRET|SHARE_HASH_SALT|re_[A-Za-z0-9]/,'no secrets in the page');
-assert.match(page,/<script src="report-core\.js\?v=\d+"><\/script><script src="report\.js\?v=\d+"><\/script>/);
-assert.match(card,/<span id="report-link-wrap" hidden> · <a id="report-link" href="report\.html">Report this card<\/a><\/span>/,'a discreet link in the card footer, hidden until the card loads');
+assert.match(html,/<script src="config\.js\?v=\d+"><\/script><script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@2\.118\.0\/dist\/umd\/supabase\.js" integrity="sha384-[A-Za-z0-9+/=]+" crossorigin="anonymous"><\/script><script src="report-core\.js\?v=\d+"><\/script><script src="report\.js\?v=\d+"><\/script><script src="report-page\.js\?v=\d+"><\/script><\/body>/);
+assert.doesNotMatch(html.replace(/<meta http-equiv="Content-Security-Policy" content="[^"]*">/,''),/<script>|jlprxnmdvoloahssjlnu|uhribjaiyuwivzqxusur|sb_publishable_/,'the report page has no inline script, and no project written in outside its security policy');
+assert.match(cardHtml,/<span id="report-link-wrap" hidden> · <a id="report-link" href="report\.html">Report this card<\/a><\/span>/,'a discreet link in the card footer, hidden until the card loads');
 assert.match(card,/\$\('report-link'\)\.href='report\.html\?u='\+encodeURIComponent\(slug\);\$\('report-link-wrap'\)\.hidden=false;/,'the link is shown only once a public card has loaded');
 assert.ok(card.indexOf("$('report-link-wrap').hidden=false")>card.indexOf("if(!data){$('status').textContent='This card is not available.';return}"),'never for a card that isn\'t available');
 
@@ -73,7 +76,7 @@ const fetches=[],answers=[],turnstile={renders:[],resets:0,removes:0,render(el,o
 const window={ValeReportCore:null,turnstile,crypto:globalThis.crypto};
 const context={window,document:doc,location:{hostname:'dev.valebrandworks.com'},console,
  fetch:async(url,init)=>{fetches.push({url,init,body:JSON.parse(init.body)});const a=answers.shift();if(a==='throw')throw new TypeError('offline');return {json:async()=>({status:a})}}};
-vm.createContext(context);vm.runInContext(coreSrc,context);vm.runInContext(ui,context);
+vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(coreSrc,context);vm.runInContext(ui,context);
 const host=new Node('section');host.id='report';doc.body.append(host);
 const settle=()=>new Promise(r=>setTimeout(r,0));
 
@@ -118,7 +121,7 @@ const settle=()=>new Promise(r=>setTimeout(r,0));
  turnstile.renders[0].callback('tok-2');answers.push('not_configured');await submit();assert.match(host.querySelector('.status').textContent,/support@valebrandworks\.com/,'an outage points to the support email');
  turnstile.renders[0].callback('tok-3');answers.push('received');await submit();
  const sent=fetches.at(-1);
- assert.equal(sent.url,core.FUNCTION_URL);assert.equal(sent.init.headers.Authorization,undefined,'no sign-in is sent');
+ assert.equal(sent.url,core.functionUrl('dev.valebrandworks.com'));assert.equal(sent.init.headers.Authorization,undefined,'no sign-in is sent');
  assert.deepEqual(sent.body,{card:'ana-ruiz',submission_id:fetches[0].body.submission_id,category:'scam',details:'They asked me for a deposit.',email:'',attested:true,turnstile_token:'tok-3'});
  assert.equal(host.querySelector('h1').textContent,'Thanks. We’ve received your report and will review it.');assert.equal(doc.activeElement,host.querySelector('h1'),'focus moves to the confirmation');
  assert.equal(all('form').length,0);assert.equal(turnstile.removes,1,'the check is removed after sending');

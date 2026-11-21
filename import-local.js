@@ -2,7 +2,11 @@
    and browser-only connections. Nothing is added or replaced without the person choosing it. */
 (function(root){
  'use strict';
- const CARD_KEY='vale-connect-dev-v09-card',BASELINE_PREFIX='vale-connect-dev-v09-baseline-';
+ // Browser-storage names start with this address's prefix (config.js), so production and development never share data.
+ // Where there is no web address (tests), the development prefix is used.
+ const config=root.ValeConfig||(typeof require==='function'?require('./config.js'):null);
+ const PREFIX=(config&&root.location?config.forHost(root.location.hostname)?.storagePrefix:null)||'vale-connect-dev-';
+ const CARD_KEY=PREFIX+'v09-card',BASELINE_PREFIX=PREFIX+'v09-baseline-';
  const FIELDS=['fullName','jobTitle','company','phone','email','website','bio','socials'];
  const normalize=c=>Object.fromEntries(FIELDS.map(k=>[k,String(c?.[k]??'').trim()]));
  const signature=c=>JSON.stringify(normalize(c));

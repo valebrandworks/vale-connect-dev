@@ -4,7 +4,7 @@ const elements=new Map(),events={},swEvents={},regEvents={};let confirmed=false,
 const element=id=>{if(!elements.has(id))elements.set(id,{hidden:false,open:false,textContent:'',onclick:null});return elements.get(id)};
 const reg={waiting:{postMessage(data){assert.equal(data.type,'ACTIVATE_UPDATE');posted++}},addEventListener:(k,fn)=>regEvents[k]=fn,update:async()=>{}};
 const context={document:{getElementById:element},location:{hostname:'dev.valebrandworks.com',pathname:'/',search:'',reload(){reloads++}},window:{matchMedia:()=>({matches:false}),addEventListener:(k,fn)=>events[k]=fn},navigator:{onLine:true,serviceWorker:{controller:{},ready:Promise.resolve(),register:async(url,options)=>{assert.equal(url,'./sw.js');assert.equal(options.scope,'./');assert.equal(options.updateViaCache,'none');return reg},addEventListener:(k,fn)=>swEvents[k]=fn}},URLSearchParams,confirm:()=>confirmed};
-vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(root,'pwa.js'),'utf8'),context);
+vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(fs.readFileSync(path.join(root,'pwa.js'),'utf8'),context);
 const settle=async()=>{for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r))};
 (async()=>{
  await settle();assert.equal(element('pwa-update').hidden,false);swEvents.controllerchange();assert.equal(reloads,0);
@@ -17,8 +17,8 @@ const settle=async()=>{for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r))
  context.navigator.onLine=false;events.offline();assert.equal(element('pwa-network').hidden,false);
  const oldElements=new Map(),old=id=>{if(!oldElements.has(id))oldElements.set(id,{hidden:false,textContent:''});return oldElements.get(id)};let oldRegistrations=0;
  const oldContext={document:{getElementById:old},location:{hostname:'valebrandworks.github.io',pathname:'/vale-connect-dev/',search:''},window:{},navigator:{serviceWorker:{register:async()=>{oldRegistrations++}}},URLSearchParams};
- vm.createContext(oldContext);vm.runInContext(fs.readFileSync(path.join(root,'pwa.js'),'utf8'),oldContext);await settle();assert.equal(oldRegistrations,0);assert.equal(old('pwa-install').hidden,true);assert.match(old('pwa-status').textContent,/dev\.valebrandworks\.com/);
- for(const hostname of ['valebrandworks.github.io','example.com']){let n=0;const c={document:{getElementById:()=>({})},location:{hostname,pathname:'/',search:''},window:{},navigator:{serviceWorker:{register:async()=>{n++}}},URLSearchParams};vm.createContext(c);vm.runInContext(fs.readFileSync(path.join(root,'pwa.js'),'utf8'),c);await settle();assert.equal(n,0,hostname)}
+ vm.createContext(oldContext);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),oldContext);vm.runInContext(fs.readFileSync(path.join(root,'pwa.js'),'utf8'),oldContext);await settle();assert.equal(oldRegistrations,0);assert.equal(old('pwa-install').hidden,true);assert.match(old('pwa-status').textContent,/dev\.valebrandworks\.com/);
+ for(const hostname of ['valebrandworks.github.io','example.com']){let n=0;const c={document:{getElementById:()=>({})},location:{hostname,pathname:'/',search:''},window:{},navigator:{serviceWorker:{register:async()=>{n++}}},URLSearchParams};vm.createContext(c);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),c);vm.runInContext(fs.readFileSync(path.join(root,'pwa.js'),'utf8'),c);await settle();assert.equal(n,0,hostname)}
  console.log('PASS: former path and unknown hosts never register a worker; install fallback/prompt/completion; offline notice; update waits for consent/online state; no initial or unsolicited reload; one reload after explicit activation.');
 })().catch(e=>{console.error(e);process.exitCode=1});
 

@@ -122,7 +122,7 @@
    if(mode==='member'){const {data}=await client.auth.getSession().catch(()=>({data:null}));accessToken=data?.session?.access_token||'';if(!accessToken){say(core.outcome('sign_in_required',card.display_name).text,'error');return}}
    sending=true;send.disabled=true;cancel.disabled=true;say('Sending…');
    let answer='network';
-   try{const res=await fetch(core.FUNCTION_URL,core.request(core.payload({...body,slug:widget.slug,submissionId:widget.submissionId,token:widget.token,note:note.input.value}),accessToken));answer=(await res.json().catch(()=>({}))).status||'error'}catch{answer='network'}
+   try{const res=await fetch(core.functionUrl(location.hostname),core.request(core.payload({...body,slug:widget.slug,submissionId:widget.submissionId,token:widget.token,note:note.input.value}),accessToken));answer=(await res.json().catch(()=>({}))).status||'error'}catch{answer='network'}
    sending=false;send.disabled=false;cancel.disabled=false;
    const result=core.outcome(answer,card.display_name);
    if(result.done){store.set(core.markerKey(card.id),core.markerValue());widget.submissionId=newId();closeCheck(widget);host.replaceChildren(el('h2',{id:'share-back-title',tabindex:'-1',class:'share-done',text:result.text}),el('p',{class:'muted',text:'They’ll find your details in their VALE Connect connections.'}));host.firstChild.focus();return}

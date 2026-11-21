@@ -16,11 +16,11 @@ async function lifetime(type){let promise;handlers[type]({waitUntil:p=>promise=p
 async function request(url,mode='cors',method='GET'){let response;handlers.fetch({request:{url,mode,method},respondWith:p=>response=p});return response?await response:null}
 (async()=>{
  await lifetime('install');assert.equal(skipped,0);
- const cached=[...stores.values()].flatMap(x=>[...x.keys()]);assert.equal(cached.length,5);assert(cached.every(u=>u===base+'offline.html'||u.startsWith(base+'assets/icons/')));
+ const cached=[...stores.values()].flatMap(x=>[...x.keys()]);assert.equal(cached.length,6);assert(cached.every(u=>u===base+'offline.html'||u===base+'offline.js'||u.startsWith(base+'assets/icons/')));
  assert(!cached.some(u=>u.includes('?')||u.includes('supabase')||u.endsWith('index.html')||u.endsWith('p.html')));
  store('production-cache');store('vale-connect-dev-pwa-obsolete');await lifetime('activate');assert.deepEqual(deleted,['vale-connect-dev-pwa-obsolete']);assert(stores.has('production-cache'));assert.equal(claimed,1);
  const response=await request(base+'p.html?u=private-test','navigate');assert.equal(await response.text(),'NETWORK ONLY PRIVATE RESPONSE');assert.equal(fetched.at(-1).options.cache,'no-store');
- assert.equal([...stores.values()].flatMap(x=>[...x.keys()]).length,5);
+ assert.equal([...stores.values()].flatMap(x=>[...x.keys()]).length,6);
  offline=true;assert.equal(await (await request(base+'?card=DO-NOT-CACHE','navigate')).text(),'OFFLINE SCREEN');assert.equal(await (await request(base+'p.html?u=test','navigate')).text(),'OFFLINE SCREEN');
  assert.equal(await request('https://jlprxnmdvoloahssjlnu.supabase.co/rest/v1/profiles'),null);
  assert.equal(await request(formerOrigin+'/vale-connect/','navigate'),null);

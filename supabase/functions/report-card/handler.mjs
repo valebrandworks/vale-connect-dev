@@ -35,8 +35,19 @@
  * @property {string} token
  */
 
-export const ALLOWED_ORIGINS = Object.freeze(['https://dev.valebrandworks.com']);
-export const TURNSTILE_HOSTNAMES = Object.freeze(['dev.valebrandworks.com']);
+// Each Supabase project serves exactly one website, chosen from the project this function runs in (SUPABASE_URL,
+// set by Supabase). Any other project serves none, so every request is refused. This is not a security boundary on its
+// own: browsers enforce origins, other clients don't. Turnstile, the database's own checks and the rate limits apply
+// to every request regardless.
+export const SITES = Object.freeze({
+  'https://jlprxnmdvoloahssjlnu.supabase.co': Object.freeze({ origin: 'https://dev.valebrandworks.com', turnstileHostname: 'dev.valebrandworks.com' }),
+  'https://uhribjaiyuwivzqxusur.supabase.co': Object.freeze({ origin: 'https://connect.valebrandworks.com', turnstileHostname: 'connect.valebrandworks.com' }),
+});
+/** @param {unknown} url */
+export function siteFor(url) {
+  const key = String(url ?? '').trim().replace(/\/+$/, '').toLowerCase();
+  return Object.hasOwn(SITES, key) ? SITES[key] : null;
+}
 export const TURNSTILE_ACTION = 'report-card';
 export const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 export const RESEND_URL = 'https://api.resend.com/emails';
@@ -170,13 +181,17 @@ export function validateRequest(body) {
  * @returns {(req: Request) => Promise<Response>}
  */
 export function createReportHandler({ env, fetch: fetchImpl, log = () => {}, timeoutMs = 8000 }) {
+  // The one website this project serves (none for an unknown project).
+  const site = siteFor(env('SUPABASE_URL'));
+  /** @param {string} origin */
+  const allowed = origin => !!site && origin === site.origin;
   const signal = () => AbortSignal.timeout(timeoutMs);
 
   /** @param {string} result @param {string} origin */
   const reply = (result, origin) => {
     /** @type {Record<string, string>} */
     const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', Vary: 'Origin' };
-    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    if (origin && allowed(origin)) {
       headers['Access-Control-Allow-Origin'] = origin;
       headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS';
       headers['Access-Control-Allow-Headers'] = 'apikey, content-type, x-client-info';
@@ -203,7 +218,7 @@ export function createReportHandler({ env, fetch: fetchImpl, log = () => {}, tim
     const codes = Array.isArray(data?.['error-codes']) ? data['error-codes'] : [];
     if (codes.includes('missing-input-secret') || codes.includes('invalid-input-secret')) { log({ event: 'config', problem: 'turnstile secret rejected' }); return 'not_configured'; }
     if (data?.success !== true) return 'verification_failed';
-    if (!TURNSTILE_HOSTNAMES.includes(data.hostname) || data.action !== TURNSTILE_ACTION) return 'verification_failed';
+    if (!site || data.hostname !== site.turnstileHostname || data.action !== TURNSTILE_ACTION) return 'verification_failed';
     return 'ok';
   }
 
@@ -245,11 +260,13 @@ export function createReportHandler({ env, fetch: fetchImpl, log = () => {}, tim
     const config = readConfig(env);
 
     if (req.method === 'OPTIONS') {
-      if (!ALLOWED_ORIGINS.includes(origin)) return reply('forbidden_origin', '');
+      if (!allowed(origin)) return reply('forbidden_origin', '');
       return new Response(null, { status: 204, headers: reply('ok', origin).headers });
     }
     if (req.method !== 'POST') return reply('method_not_allowed', origin);
-    if (!ALLOWED_ORIGINS.includes(origin)) return finish('forbidden_origin', '');
+    // A project with no known website is a settings problem: refuse everything and name it in the log.
+    if (!site) { log({ event: 'config', missing: ['site', ...Object.keys(config.checks).filter(k => !config.checks[k])] }); return finish('not_configured', ''); }
+    if (!allowed(origin)) return finish('forbidden_origin', '');
     if (!config.ok) { log({ event: 'config', missing: Object.keys(config.checks).filter(k => !config.checks[k]) }); return finish('not_configured', origin); }
     // No trustworthy network address, no report: the network limits and blocks must not be escapable.
     const network = networkKey(req.headers);
