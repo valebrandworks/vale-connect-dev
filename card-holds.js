@@ -1,4 +1,4 @@
-/* Cards hidden after a review: what their owner is told. No page or network access here.
+/* Cards hidden after a review, and restrictions lifted: what their owner is told. No page or network access here.
    The owner sees the reason, the explanation written for them, when it happened and how to appeal. They are never
    told who reported the card or anything else about the report. The database keeps a hidden card unpublished. */
 (function(root){
@@ -24,8 +24,15 @@
    appealHref:appealHref(card?.slug),
   };
  }
+ // After an admin lifts a restriction the card stays private; its owner is told it can be published again.
+ function lifted(){
+  return {title:'Restriction lifted',
+   text:'After a review, the restriction on this card has been lifted. It’s still private: nobody can see it until you publish it again. Check it, then choose Review and publish when you’re ready.'};
+ }
+ // Unread "restriction lifted" notices, by card: card id → notice ids (to mark them read).
+ const liftedByCard=rows=>{const m=new Map();for(const n of Array.isArray(rows)?rows:[])if(n&&n.kind==='card_restored'&&!n.read_at&&typeof n.card_id==='string'&&typeof n.id==='string')(m.get(n.card_id)||m.set(n.card_id,[]).get(n.card_id)).push(n.id);return m};
  const byCard=rows=>new Map((Array.isArray(rows)?rows:[]).filter(h=>h&&typeof h.card_id==='string').map(h=>[h.card_id,h]));
 
- const api={SUPPORT_EMAIL,REASONS,reason,appealHref,notice,byCard};
+ const api={SUPPORT_EMAIL,REASONS,reason,appealHref,notice,lifted,liftedByCard,byCard};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeCardHolds=api;
 })(typeof window!=='undefined'?window:globalThis);

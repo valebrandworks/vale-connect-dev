@@ -21,6 +21,7 @@ SELECT check_name, CASE WHEN ok THEN 'pass' ELSE 'FAIL' END AS result FROM (VALU
    AND NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname LIKE 'admin_%'
     AND (pg_get_functiondef(p.oid) NOT LIKE '%PERFORM vale_private.require_admin()%' AND pg_get_functiondef(p.oid) NOT LIKE '%:= vale_private.require_admin()%'
      OR has_function_privilege('anon', p.oid, 'EXECUTE') OR has_function_privilege('service_role', p.oid, 'EXECUTE')))),
+ ('Lifting a restriction never publishes a card', to_regprocedure('public.admin_restore_card(uuid,text)') IS NOT NULL AND pg_get_functiondef(to_regprocedure('public.admin_restore_card(uuid,text)')) NOT ILIKE '%published%=%true%'),
  ('Hidden cards cannot be republished by owners', EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'public_cards_holds' AND tgrelid = to_regclass('public.public_cards') AND tgenabled = 'O')),
  ('Account deletion available', to_regprocedure('public.delete_my_account(text)') IS NOT NULL AND has_function_privilege('authenticated', to_regprocedure('public.delete_my_account(text)'), 'EXECUTE') AND NOT has_function_privilege('anon', to_regprocedure('public.delete_my_account(text)'), 'EXECUTE'))
 ) AS checks(check_name, ok);

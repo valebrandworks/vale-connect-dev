@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections', 'card_reports', 'admin_get_report'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED, REPORTS, GET_REPORT] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections', 'card_reports', 'admin_get_report', 'lift_restriction'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED, REPORTS, GET_REPORT, LIFT] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -75,6 +75,15 @@ const getFn = (find, replace = '') => {
   if (!body.includes(find)) throw new Error('admin_get_report rule not found: ' + find);
   return body.replace(find, replace);
 };
+// Lifting a restriction (admin_restore_card as it is now), with one rule changed.
+const LIFT_SQL = 'supabase/migrations/20261121000100_lift_restriction_keeps_card_private.sql', LIFT_DOWN = 'supabase/rollback/20261121000100_lift_restriction_keeps_card_private.down.sql';
+const liftSql = sql(LIFT_SQL).replace(/\r\n/g, '\n');
+const liftFn = (find, replace = '') => {
+  const start = liftSql.indexOf('CREATE OR REPLACE FUNCTION public.admin_restore_card('), end = liftSql.indexOf('\nEND $$;', start) + 8;
+  const body = liftSql.slice(start, end);
+  if (start < 0 || !body.includes(find)) throw new Error('admin_restore_card rule not found: ' + find);
+  return body.replace(find, replace);
+};
 const brokenRules = [
   ['reports: visitors can submit directly', REPORTS, 'GRANT EXECUTE ON FUNCTION public.submit_card_report(text, uuid, text, text, text, boolean, text) TO anon'],
   ['reports: accounts can read reports', REPORTS, 'GRANT SELECT ON vale_private.card_reports TO authenticated'],
@@ -96,10 +105,17 @@ const brokenRules = [
   ['reports: hiding not logged', REPORTS, reportFn('public.admin_hide_card', " INSERT INTO vale_private.moderation_actions(admin_id, action, report_id, card_id, note) VALUES (uid, 'hide_card', rep.id, rep.card_id, v_note);\n")],
   ['reports: owners can republish hidden cards', REPORTS, 'DROP TRIGGER public_cards_holds ON public.public_cards'],
   ['reports: owners see who reported', REPORTS, "DROP FUNCTION public.get_my_card_holds(); CREATE FUNCTION public.get_my_card_holds() RETURNS TABLE (card_id uuid, hidden_at timestamptz, category text, owner_message text, reporter text) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS 'SELECT h.card_id, h.hidden_at, h.category, h.owner_message, r.network_hash FROM vale_private.card_holds h JOIN public.public_cards c ON c.id = h.card_id LEFT JOIN vale_private.card_reports r ON r.id = h.report_id WHERE c.owner_id = (SELECT auth.uid())'; GRANT EXECUTE ON FUNCTION public.get_my_card_holds() TO authenticated"],
-  ['reports: restoring leaves the card hidden', REPORTS, reportFn('public.admin_restore_card', ' UPDATE public.public_cards SET published = true WHERE id = p_card_id;\n')],
   ['reports: cleanup keeps everything', REPORTS, "CREATE OR REPLACE FUNCTION vale_private.purge_reports() RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path TO '' AS 'SELECT'"],
   ['reports: cleanup ignores legal holds', REPORTS, reportFn('vale_private.purge_reports', 'DELETE FROM vale_private.card_reports r WHERE NOT r.legal_hold', 'DELETE FROM vale_private.card_reports r WHERE true')],
   ['reports: deleting an account deletes reports about it', REPORTS, 'ALTER TABLE vale_private.card_reports DROP CONSTRAINT card_reports_card_owner_id_fkey, ADD CONSTRAINT card_reports_card_owner_id_fkey FOREIGN KEY (card_owner_id) REFERENCES auth.users(id) ON DELETE CASCADE'],
+  ['lift: lifting publishes the card again', LIFT, liftFn(' -- The card is not published here. Only its owner can publish it again.\n', ' UPDATE public.public_cards SET published = true WHERE id = p_card_id;\n')],
+  ['lift: lifting publishes the card (stage A behaviour)', LIFT, reportFn('public.admin_restore_card', 'BEGIN', 'BEGIN')],
+  ['lift: restriction stays', LIFT, liftFn(' DELETE FROM vale_private.card_holds WHERE card_id = p_card_id;\n')],
+  ['lift: owner not told', LIFT, liftFn(" INSERT INTO public.notifications(owner_id, kind, card_id) VALUES (v_owner, 'card_restored', p_card_id);\n")],
+  ['lift: not in the audit trail', LIFT, liftFn(" INSERT INTO vale_private.moderation_actions(admin_id, action, report_id, card_id, note) VALUES (uid, 'restore_card', hold.report_id, p_card_id, v_note);\n")],
+  ['lift: no note needed', LIFT, liftFn('vale_private.clean_note(p_note, true)', 'vale_private.clean_note(p_note, false)')],
+  ['lift: no admin check', LIFT, liftFn('uid uuid := vale_private.require_admin();', 'uid uuid := auth.uid();')],
+  ['lift: visitors can call it', LIFT, 'GRANT EXECUTE ON FUNCTION public.admin_restore_card(uuid, text) TO anon'],
   ['report lookup: visitors can open a report', GET_REPORT, 'GRANT EXECUTE ON FUNCTION public.admin_get_report(uuid) TO anon'],
   ['report lookup: the server role can open a report', GET_REPORT, 'GRANT EXECUTE ON FUNCTION public.admin_get_report(uuid) TO service_role'],
   ['report lookup: no admin check', GET_REPORT, getFn(' PERFORM vale_private.require_admin();\n')],
@@ -240,6 +256,7 @@ await ucDb.close();
 // Reports: the rollback removes the feature (leaving cards and notifications as they were), and re-applying restores the same structure.
 const crDb = await rebuild(repo);
 const crBefore = await snapshotOf(crDb);
+await crDb.exec(sql(LIFT_DOWN));
 await crDb.exec(sql(GET_DOWN));
 const getDown = await snapshotOf(crDb);
 report(!getDown.functions.some(f => f.signature.includes('admin_get_report')) && JSON.stringify({ ...getDown, functions: [] }) === JSON.stringify({ ...crBefore, functions: [] }) && getDown.functions.length === crBefore.functions.length - 1, 'report lookup rollback: removes only admin_get_report');
@@ -251,11 +268,29 @@ try { await crDb.exec(sql(REPORTS)); } catch { crOld = true; await crDb.exec('RO
 report(crOld, 'reports rollback: the reports test notices the feature is gone');
 await crDb.exec(sql(REPORTS_SQL));
 await crDb.exec(sql(GET_SQL));
+await crDb.exec(sql(LIFT_SQL));
 const crAgain = await snapshotOf(crDb);
 // Re-adding the notice column gives it a new position; everything else must match exactly.
 const noPosition = s => JSON.stringify({ ...s, columns: s.columns.map(({ position, ...c }) => c) });
 report(noPosition(crAgain) === noPosition(crBefore), 'reports: re-applying after rollback restores the same structure');
 await crDb.close();
+
+// Lifting a restriction: the rollback puts back exactly the stage A function, and re-applying restores the same structure.
+const liftDb = await rebuild(repo), stageA = await rebuild(repo);
+const liftBefore = await snapshotOf(liftDb);
+await liftDb.exec(sql(LIFT_DOWN));
+await stageA.exec(reportFn('public.admin_restore_card', 'BEGIN', 'BEGIN'));
+const restoreDef = async database => (await database.query(`SELECT pg_get_functiondef('public.admin_restore_card(uuid, text)'::regprocedure) AS d`)).rows[0].d;
+report(await restoreDef(liftDb) === await restoreDef(stageA) && /published = true/.test(await restoreDef(liftDb)), 'lift rollback: puts back the stage A function exactly');
+const liftDown = await snapshotOf(liftDb);
+const withoutRestore = snap => JSON.stringify({ ...snap, functions: snap.functions.filter(fn => !fn.signature.startsWith('admin_restore_card(')) });
+report(withoutRestore(liftDown) === withoutRestore(liftBefore), 'lift rollback: changes nothing else');
+let liftOld = false;
+try { await liftDb.exec(sql(LIFT)); } catch { liftOld = true; await liftDb.exec('ROLLBACK'); }
+report(liftOld, 'lift rollback: the lift test notices cards are published again');
+await liftDb.exec(sql(LIFT_SQL));
+report(JSON.stringify(await snapshotOf(liftDb)) === JSON.stringify(liftBefore), 'lift: re-applying after rollback restores the same structure');
+await liftDb.close(); await stageA.close();
 
 // The launch gate passes on the finished design and fails if a protection is missing.
 const gateRows = async database => (await database.query(sql('supabase/inspection/launch_gate.sql'))).rows;
@@ -266,6 +301,8 @@ await finished.exec(`GRANT SELECT ON public.public_cards TO anon; CREATE POLICY 
 report((await gateRows(finished)).filter(row => row.result === 'FAIL').length === 3, 'launch gate: fails when public cards can be listed');
 await finished.exec(`CREATE FUNCTION public.admin_demo() RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path TO '' AS 'SELECT 1'; GRANT EXECUTE ON FUNCTION public.admin_demo() TO authenticated`);
 report((await gateRows(finished)).some(row => row.check_name.startsWith('Every admin function') && row.result === 'FAIL'), 'launch gate: fails when an admin function skips the admin check');
+await finished.exec(sql(LIFT_DOWN));
+report((await gateRows(finished)).some(row => row.check_name.startsWith('Lifting a restriction') && row.result === 'FAIL'), 'launch gate: fails when lifting a restriction publishes the card');
 await finished.close();
 
 // The structure snapshot returns structure only and changes nothing.

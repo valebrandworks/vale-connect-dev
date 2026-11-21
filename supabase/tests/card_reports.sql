@@ -253,7 +253,9 @@ DO $$ BEGIN
 END $$;
 RESET ROLE;
 DO $$ BEGIN
- IF NOT EXISTS (SELECT 1 FROM public.get_public_card(current_setting('vale.os'))) THEN RAISE EXCEPTION 'CHECK: restored card isn''t public'; END IF;
+ -- Lifting the restriction leaves the card private: only its owner publishes it again.
+ IF EXISTS (SELECT 1 FROM public.get_public_card(current_setting('vale.os'))) OR (SELECT published FROM public.public_cards WHERE id = current_setting('vale.oc')::uuid)
+  THEN RAISE EXCEPTION 'CHECK: lifting the restriction published the card'; END IF;
  IF EXISTS (SELECT 1 FROM vale_private.card_holds) THEN RAISE EXCEPTION 'CHECK: hold not removed'; END IF;
  IF NOT EXISTS (SELECT 1 FROM public.notifications WHERE kind = 'card_restored' AND card_id = current_setting('vale.oc')::uuid) THEN RAISE EXCEPTION 'CHECK: owner not told of the restore'; END IF;
  -- The blocked network's reports are quietly not stored; others still are.
@@ -262,12 +264,16 @@ DO $$ BEGIN
  IF (SELECT count(*) FROM vale_private.moderation_actions WHERE admin_id = current_setting('vale.a')::uuid) < 8 THEN RAISE EXCEPTION 'CHECK: decisions missing from the log'; END IF;
  IF EXISTS (SELECT 1 FROM vale_private.moderation_actions WHERE action IN ('hide_card', 'restore_card', 'block_reporter', 'legal_hold', 'note') AND note = '') THEN RAISE EXCEPTION 'CHECK: a decision was logged without a note'; END IF;
 END $$;
--- The restored card's owner can unpublish and publish it as usual.
+-- Its owner can publish it again, and unpublish it, as usual.
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims', json_build_object('sub', current_setting('vale.o'), 'role', 'authenticated')::text, true);
+UPDATE public.public_cards SET published = true WHERE id = current_setting('vale.oc')::uuid;
 UPDATE public.public_cards SET published = false WHERE id = current_setting('vale.oc')::uuid;
 UPDATE public.public_cards SET published = true WHERE id = current_setting('vale.oc')::uuid;
 RESET ROLE;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM public.get_public_card(current_setting('vale.os'))) THEN RAISE EXCEPTION 'CHECK: the owner couldn''t publish the card after the restriction was lifted'; END IF;
+END $$;
 
 -- J. Retention: closed reports, rate-limit records, the log and blocks go after their periods; open reports, legal
 -- holds and the reason a card is still hidden stay.

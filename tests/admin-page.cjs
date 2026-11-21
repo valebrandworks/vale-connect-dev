@@ -126,7 +126,7 @@ function scenario(sources,setup={}){
     case 'admin_add_note':if(!note)return err('P0001','Add a short note explaining the decision.');log(r,'note',note);return {data:null,error:null};
     case 'admin_hide_card':if(!note)return err('P0001','Add a short note explaining the decision.');if(!String(args.p_owner_message||'').trim())return err('P0001','Write a short explanation for the card owner (up to 500 characters).');
      if(r.card_hidden)return err('P0001','That card is already hidden.');r.card_hidden=true;r.card_published=false;log(r,'hide_card',note);if(['new','reviewing'].includes(r.status)){log(r,'status','Card hidden.',{from_status:r.status,to_status:'action_taken'});r.status='action_taken';r.closed_at='x';r.reporter_email=null}return {data:null,error:null};
-    case 'admin_restore_card':if(!note)return err('P0001','Add a short note explaining the decision.');r.card_hidden=false;r.card_published=true;log(r,'restore_card',note);return {data:null,error:null};
+    case 'admin_restore_card':if(!note)return err('P0001','Add a short note explaining the decision.');r.card_hidden=false;r.card_published=false;log(r,'restore_card',note);return {data:null,error:null};
     case 'admin_set_legal_hold':if(!note)return err('P0001','Add a short note explaining the decision.');r.legal_hold=args.p_hold;log(r,args.p_hold?'legal_hold':'release_hold',note);return {data:null,error:null};
     case 'admin_block_reporter':if(!note)return err('P0001','Add a short note explaining the decision.');r.reporter_blocked=args.p_block;log(r,args.p_block?'block_reporter':'unblock_reporter',note);return {data:null,error:null};
     default:return err('42883','unknown function');
@@ -198,7 +198,7 @@ async function behaviour(sources){
  assert.ok(t.host.querySelectorAll('a').some(a=>a.href==='p.html?u=ana-ruiz-1a2b3c'&&a.rel==='noopener noreferrer'&&a.target==='_blank'));
  assert.ok(t.host.querySelectorAll('a').some(a=>a.href==='mailto:reporter@example.invalid'));
  for(const label of ['Mark as reviewing','Dismiss','Close as action taken','Hide card','Place legal hold','Block reporting network','Add note'])assert.ok(t.hasButton(label),label);
- assert.ok(!t.hasButton('Restore card'),'nothing to restore');
+ assert.ok(!t.hasButton('Lift restriction'),'nothing to restore');
 
  // Marking as reviewing needs no note and no confirmation.
  await t.click('Mark as reviewing');await t.submit();
@@ -216,12 +216,13 @@ async function behaviour(sources){
  assert.deepEqual(t.rpcCalls('admin_hide_card'),[['admin_hide_card',{p_report_id:'r1',p_owner_message:'This card appears to impersonate another business.',p_note:'Compared with the real company site.'}]]);
  assert.match(t.text(),/Hidden after review/);assert.match(t.text(),/Card hidden/);assert.match(t.text(),/Status changed: Reviewing → Action taken/,'the audit trail');
  assert.doesNotMatch(t.text(),/reporter@example\.invalid/,'the reporter’s email is gone once closed');
- assert.ok(t.hasButton('Restore card')&&!t.hasButton('Hide card'));
+ assert.ok(t.hasButton('Lift restriction')&&!t.hasButton('Hide card'));
 
  // Database refusals are shown in its own words; nothing else changes.
- t.sim.fail='That card isn’t hidden.';await t.click('Restore card');t.fill('admin-note','Appeal accepted.');await t.submit();
+ t.sim.fail='That card isn’t hidden.';await t.click('Lift restriction');t.fill('admin-note','Appeal accepted.');await t.submit();
  assert.match(t.statusText(),/That card isn’t hidden\./);t.sim.fail=null;await t.submit();
- assert.deepEqual(t.rpcCalls('admin_restore_card').pop()[1],{p_card_id:'c1',p_note:'Appeal accepted.'});assert.match(t.sim.asks.pop().text,/^Restore this card\?/);
+ assert.deepEqual(t.rpcCalls('admin_restore_card').pop()[1],{p_card_id:'c1',p_note:'Appeal accepted.'});assert.match(t.sim.asks.pop().text,/^Lift the restriction on this card\? It stays private until its owner chooses to publish it again\./);
+ assert.match(t.text(),/Private \(not public until its owner publishes it\)/);assert.match(t.text(),/Restriction lifted/,'the audit trail');
 
  // Legal hold and blocking, each with a note and confirmation.
  await t.click('Place legal hold');t.fill('admin-note','Requested by counsel.');await t.submit();
@@ -273,6 +274,7 @@ const SABOTAGE=[
  ['sign-in read from the address','ui',"detectSessionInUrl:false","detectSessionInUrl:true"],
  ['wrong codes sent anyway','core',"/^\\d{6}$/.test(","/^\\d{2,}$/.test("],
  ['a report found by scanning the first 200','ui',"state.client.rpc('admin_get_report',{p_report_id:id})","state.client.rpc('admin_list_reports',{p_status:null,p_limit:200,p_offset:0}).then(r=>r.error?r:{data:(r.data||[]).filter(x=>x.id===id)})"],
+ ['lifting promises the card is public again','core',"It stays private until its owner chooses to publish it again.","It becomes public again at once."],
  ['signing out of every device','ui',"signOut({scope:'local'})","signOut({scope:'global'})"],
 ];
 (async()=>{

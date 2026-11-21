@@ -13,7 +13,7 @@
  const STATUS_LABELS=Object.fromEntries(STATUSES);
  // Filters for the list. "All" shows open reports first, oldest first (the database's order).
  const FILTERS=[['','All'],...STATUSES];
- const ACTION_LABELS={status:'Status changed',note:'Note',hide_card:'Card hidden',restore_card:'Card restored',
+ const ACTION_LABELS={status:'Status changed',note:'Note',hide_card:'Card hidden',restore_card:'Restriction lifted',
   legal_hold:'Legal hold placed',release_hold:'Legal hold released',block_reporter:'Reporting network blocked',unblock_reporter:'Reporting network unblocked'};
  const CARD_FIELDS=[['display_name','Name'],['job_title','Title'],['business_name','Business'],['introduction','Introduction'],
   ['public_email','Email'],['public_phone','Phone'],['website','Website']];
@@ -93,7 +93,8 @@
   action_taken:{label:'Close as action taken',noteLabel:'What action was taken?',confirm:'Close this report as action taken, without hiding the card? The reporter’s email (if any) is deleted.'},
   hide:{label:'Hide card',noteLabel:'Internal note (why it’s hidden)',owner:true,danger:true,
    confirm:'Hide this card? It disappears from its link and QR code at once, its owner can’t publish it again, and they’ll see your explanation and how to appeal. The report closes as action taken.'},
-  restore:{label:'Restore card',noteLabel:'Why is it being restored?',confirm:'Restore this card? It becomes public again at once, and its owner is told.'},
+  restore:{label:'Lift restriction',noteLabel:'Why is the restriction being lifted?',
+   confirm:'Lift the restriction on this card? It stays private until its owner chooses to publish it again. They’ll be told it can be published.'},
   legal_hold:{label:'Place legal hold',noteLabel:'Why must this be kept?',confirm:'Place a legal hold? This report and its history won’t be deleted on schedule until the hold is released.'},
   release_hold:{label:'Release legal hold',noteLabel:'Why is the hold no longer needed?',confirm:'Release the legal hold? The report will then follow the normal deletion schedule.'},
   block:{label:'Block reporting network',noteLabel:'Why block it? (for example, repeated false reports)',danger:true,
@@ -125,7 +126,7 @@
  function cardState(report){
   if(!report?.card_id||!report.card_current)return 'Deleted by its owner';
   if(report.card_hidden)return 'Hidden after review';
-  return report.card_published?'Public':'Private (its owner unpublished it)';
+  return report.card_published?'Public':'Private (not public until its owner publishes it)';
  }
  function historyLine(entry){
   const label=has(ACTION_LABELS,entry?.action)?ACTION_LABELS[entry.action]:'Action';
