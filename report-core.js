@@ -3,10 +3,8 @@
    help people fix mistakes before sending. */
 (function(root){
  'use strict';
- const FUNCTION_URL='https://jlprxnmdvoloahssjlnu.supabase.co/functions/v1/report-card';
- // Turnstile site keys are public. On this computer, Cloudflare's published test key lets the page be checked;
- // the server never accepts its tokens. Any other address gets no form.
- const SITE_KEYS={'dev.valebrandworks.com':'0x4AAAAAAF5bZ3cludhKsLJJ','localhost':'1x00000000000000000000AA','127.0.0.1':'1x00000000000000000000AA'};
+ // Public settings for this web address (config.js). Not a security boundary: the server checks everything again.
+ const config=root.ValeConfig||(typeof require==='function'?require('./config.js'):null);
  const LIMITS={details:1000,email:254};
  // The approved categories, in the order shown, with a short explanation each.
  const CATEGORIES=[
@@ -24,7 +22,8 @@
  const text=v=>String(v??'').replace(/[\u0000-\u001f\u007f]/g,' ').trim();
  // Explanations keep their line breaks; only other control characters are removed.
  const longText=v=>String(v??'').replace(/\r\n?/g,'\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g,' ').trim();
- const siteKey=hostname=>Object.hasOwn(SITE_KEYS,hostname)?SITE_KEYS[hostname]:null;
+ const siteKey=hostname=>config?.forHost(hostname)?.turnstileSiteKey||null;
+ const functionUrl=hostname=>config?config.functionUrl(hostname,'report-card'):null;
  const slugOk=slug=>typeof slug==='string'&&slug.length>=3&&slug.length<=60&&SLUG.test(slug);
  const emailOk=v=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);
 
@@ -55,6 +54,6 @@
  }
  const counter=value=>longText(value).length.toLocaleString('en-US')+' / '+LIMITS.details.toLocaleString('en-US');
 
- const api={FUNCTION_URL,LIMITS,CATEGORIES,CATEGORY_KEYS,siteKey,slugOk,check,payload,request,outcome,counter};
+ const api={functionUrl,LIMITS,CATEGORIES,CATEGORY_KEYS,siteKey,slugOk,check,payload,request,outcome,counter};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeReportCore=api;
 })(typeof window!=='undefined'?window:globalThis);

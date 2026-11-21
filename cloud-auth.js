@@ -6,7 +6,8 @@
 const $=id=>document.getElementById(id);if(!$('cloud-auth'))return;
 // Without its rules (auth-core.js), the form stays unavailable rather than skipping any check.
 const core=window.ValeAuthCore;if(!core){const s=$('cloud-auth-status');if(s)s.textContent='Sign-in is unavailable right now. Please refresh the page.';return}
-const DEFAULT_URL='https://jlprxnmdvoloahssjlnu.supabase.co',DEFAULT_KEY='sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_';
+// This web address's project (config.js). Any other address gets no project at all.
+const ENV=window.ValeConfig?.forHost(location.hostname)||null;
 const TURNSTILE_SRC='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 let client=null,user=null,generation=0,mode='signin',busy=false;
 function accountRequest(){return user?{id:user.id,generation}:null}
@@ -74,7 +75,8 @@ function setSignedIn(account){
 async function init(){
  if(!window.supabase?.createClient){msg('cloud-auth-status','VALE Connect couldn’t reach its sign-in service. Check your internet connection and refresh.');return}
  try{
-  client=window.supabase.createClient(DEFAULT_URL,DEFAULT_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  if(!ENV){msg('cloud-auth-status','This isn’t a VALE Connect address, so sign-in is unavailable here.');return}
+  client=window.supabase.createClient(ENV.supabaseUrl,ENV.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
   let authEventVersion=0;
   client.auth.onAuthStateChange((_event,session)=>{authEventVersion++;setSignedIn(session?.user||null);if(_event==='PASSWORD_RECOVERY')showPasswordForm('Choose a new password to finish signing in.')});
   const initAuthVersion=authEventVersion;const {data,error}=await client.auth.getUser();

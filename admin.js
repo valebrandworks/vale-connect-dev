@@ -5,7 +5,8 @@
 (()=>{
  'use strict';
  const core=window.ValeAdminCore;if(!core||typeof document==='undefined')return;
- const SUPABASE_URL='https://jlprxnmdvoloahssjlnu.supabase.co',SUPABASE_KEY='sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_';
+ // This web address's project (config.js). Any other address gets nothing. The database decides who is an admin.
+ const ENV=window.ValeConfig?.forHost(location.hostname)||null;
  const $=id=>document.getElementById(id);
  const el=(tag,props={},...children)=>{const node=document.createElement(tag);for(const [k,v] of Object.entries(props)){if(v===undefined||v===null)continue;if(k==='class')node.className=v;else if(k==='text')node.textContent=v;else if(k in node&&!k.startsWith('aria'))node[k]=v;else node.setAttribute(k,v)}node.append(...children.filter(c=>c!==null&&c!==undefined&&c!==false));return node};
  const host=$('admin'),loading=$('admin-status');
@@ -251,7 +252,8 @@
 
  async function start(){
   if(!window.supabase?.createClient){say(loading,'This page can’t load right now. Try again later.');return}
-  state.client=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
+  if(!ENV){say(loading,'This page isn’t available on this address.');return}
+  state.client=window.supabase.createClient(ENV.supabaseUrl,ENV.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
   try{
    const {data}=await state.client.auth.getSession();
    if(!data?.session)return signedOut();

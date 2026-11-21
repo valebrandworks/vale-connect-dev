@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
 const root=path.resolve(process.argv[2]||path.join(__dirname,'..'));
 const local=require(path.join(root,'connections-core.js')),core=require(path.join(root,'cloud-connections-core.js')),restore=require(path.join(root,'connections-restore.js'));
-const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),viewer=fs.readFileSync(path.join(root,'p.html'),'utf8');
+const html=fs.readFileSync(path.join(root,'index.html'),'utf8'),viewer=fs.readFileSync(path.join(root,'card-page.js'),'utf8');
 let failed=0;
 function check(name,work){try{work();console.log('  ok: '+name)}catch(error){failed++;console.error('  FAILED: '+name+'\n    '+error.message)}}
 

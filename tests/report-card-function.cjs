@@ -41,6 +41,7 @@ async function suite(fn, rebuild, share) {
       if (token === 'down') throw new Error('network down');
       if (token === 'secret-rejected') return respond(200, { success: false, 'error-codes': ['invalid-input-secret'] });
       if (token === 'wrong-host') return respond(200, { success: true, hostname: 'evil.example', action: fn.TURNSTILE_ACTION });
+      if (token === 'prod-host') return respond(200, { success: true, hostname: 'connect.valebrandworks.com', action: fn.TURNSTILE_ACTION });
       if (token === 'share-token') return respond(200, { success: true, hostname: 'dev.valebrandworks.com', action: 'share-card' });
       if (token === 'pass') return respond(200, { success: true, hostname: 'dev.valebrandworks.com', action: fn.TURNSTILE_ACTION });
       return respond(200, { success: false, 'error-codes': ['invalid-input-response'] });
@@ -187,6 +188,19 @@ async function suite(fn, rebuild, share) {
   eq([r.status, r.res.headers.get('access-control-allow-origin'), r.res.headers.get('access-control-allow-methods')], [204, ORIGIN, 'POST, OPTIONS'], 'the browser preflight is answered for the allowed page');
   r = await post(null, { method: 'OPTIONS', origin: 'https://evil.example' });
   eq(r.status, 403, 'other websites get no preflight');
+  r = await post(report(), { origin: 'https://connect.valebrandworks.com' });
+  eq([r.status, r.outside], [403, []], 'the production site is refused by the development project');
+  eq([fn.siteFor('https://jlprxnmdvoloahssjlnu.supabase.co')?.origin, fn.siteFor('https://uhribjaiyuwivzqxusur.supabase.co')?.origin, fn.siteFor('https://evil.supabase.co')], ['https://dev.valebrandworks.com', 'https://connect.valebrandworks.com', null], 'one website per project, none for others');
+  {
+    const prodH = handlerFor({ ...ENV, SUPABASE_URL: 'https://uhribjaiyuwivzqxusur.supabase.co' });
+    const pre = async o => prodH(new Request('https://x.invalid/report-card', { method: 'OPTIONS', headers: { Origin: o, 'Access-Control-Request-Method': 'POST' } }));
+    let p = await pre('https://connect.valebrandworks.com');
+    eq([p.status, p.headers.get('access-control-allow-origin')], [204, 'https://connect.valebrandworks.com'], 'the production project answers its own site');
+    p = await pre(ORIGIN);
+    eq([p.status, p.headers.get('access-control-allow-origin')], [403, null], 'the production project refuses the development site');
+  }
+  r = await post(report({ turnstile_token: 'prod-host' }));
+  eq([r.status, r.answer], [403, 'verification_failed'], 'a Turnstile pass issued for the production site is refused on development');
   r = await post(null, { method: 'GET' });
   eq([r.status, r.answer, r.outside], [405, 'method_not_allowed', []], 'GET is refused and reveals nothing');
   ok(!/turnstile|salt|key|check/i.test(r.text), 'no settings in a refused GET');
@@ -255,7 +269,9 @@ async function suite(fn, rebuild, share) {
 const SABOTAGE = [
   ['Turnstile not checked', 'const human = await verifyTurnstile(config, request.token, request.submissionId);', "const human = 'ok';"],
   ['Turnstile action not checked (share tokens accepted)', '|| data.action !== TURNSTILE_ACTION', ''],
-  ['Turnstile website not checked', '!TURNSTILE_HOSTNAMES.includes(data.hostname) || ', ''],
+  ['Turnstile website not checked', '!site || data.hostname !== site.turnstileHostname || ', ''],
+  ['development project serves the production site', "origin: 'https://dev.valebrandworks.com', turnstileHostname: 'dev.valebrandworks.com'", "origin: 'https://connect.valebrandworks.com', turnstileHostname: 'connect.valebrandworks.com'"],
+  ['unknown projects served', 'return Object.hasOwn(SITES, key) ? SITES[key] : null;', "return Object.hasOwn(SITES, key) ? SITES[key] : SITES['https://jlprxnmdvoloahssjlnu.supabase.co'];"],
   ['accuracy confirmation not required', 'if (attested !== true) return null;', ''],
   ['unknown request keys accepted', 'if (Object.keys(body).some(key => !KEYS.includes(key))) return null;', ''],
   ['any category accepted', "if (typeof category !== 'string' || !CATEGORIES.includes(category)) return null;", "if (typeof category !== 'string') return null;"],
@@ -273,7 +289,7 @@ const SABOTAGE = [
   ['network address sent to Cloudflare', 'idempotency_key: submissionId })', "idempotency_key: submissionId, remoteip: 'x' })"],
   ['missing settings tolerated', 'if (!config.ok) {', 'if (false) {'],
   ['short hash salt accepted', "hash_salt: get('SHARE_HASH_SALT').length >= MIN_SALT_LENGTH,", "hash_salt: get('SHARE_HASH_SALT') !== '',"],
-  ['origin not checked', "if (!ALLOWED_ORIGINS.includes(origin)) return finish('forbidden_origin', '');", ''],
+  ['origin not checked', "if (!allowed(origin)) return finish('forbidden_origin', '');", ''],
   ['database errors shown to the browser', "if (!res.ok) { log({ event: 'database', call: name, status: res.status }); return { ok: false }; }", "if (!res.ok) return { ok: true, value: await res.text() };", "if (!RECEIVED.includes(stored)) return finish('error', origin);", "if (!RECEIVED.includes(stored)) return new Response(JSON.stringify({ status: stored }), { status: 502 });"],
   ['secret key sent as a bearer token', "if (!config.serverKey.startsWith('sb_')) headers.Authorization", 'headers.Authorization'],
   ['oversized requests accepted', 'if (new TextEncoder().encode(text).length > MAX_BODY_BYTES)', 'if (false)'],

@@ -7,11 +7,9 @@
  const AGREEMENT_VERSION='2026-11-v1';
  const PRIVACY_URL='privacy.html';
  const TERMS_URL=null;                           // set to 'terms.html' when the Terms of Service are published
- // Turnstile site keys are public. On this computer, Cloudflare's published test key lets the page be checked; the
- // server never accepts its tokens. Other addresses get no check from the page (the server still requires one once
- // bot protection is on).
- const SITE_KEYS={'dev.valebrandworks.com':'0x4AAAAAAF5bZ3cludhKsLJJ','localhost':'1x00000000000000000000AA','127.0.0.1':'1x00000000000000000000AA'};
- const siteKey=host=>Object.hasOwn(SITE_KEYS,host)?SITE_KEYS[host]:null;
+ // Public settings for this web address (config.js). Not a security boundary: the server checks everything again.
+ const config=root.ValeConfig||(typeof require==='function'?require('./config.js'):null);
+ const siteKey=host=>config?.forHost(host)?.turnstileSiteKey||null;
  const emailOk=v=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v||'').trim());
 
  // The agreement shown at sign-up. Terms are added automatically once TERMS_URL is set.

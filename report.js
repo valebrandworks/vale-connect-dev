@@ -76,7 +76,7 @@
    if(!state.token){say('Complete the security check first.','error');return}
    sending=true;send.disabled=true;say('Sending…');
    let answer='network';
-   try{const res=await fetch(core.FUNCTION_URL,core.request(core.payload({slug,submissionId:state.submissionId,token:state.token,category:r.category,details:r.details,email:r.email})));answer=(await res.json().catch(()=>({}))).status||'error'}catch{answer='network'}
+   try{const res=await fetch(core.functionUrl(location.hostname),core.request(core.payload({slug,submissionId:state.submissionId,token:state.token,category:r.category,details:r.details,email:r.email})));answer=(await res.json().catch(()=>({}))).status||'error'}catch{answer='network'}
    sending=false;send.disabled=false;
    const result=core.outcome(answer);
    if(result.done){if(state.checkId!==undefined&&window.turnstile){try{window.turnstile.remove(state.checkId)}catch{}}host.replaceChildren(el('h1',{id:'report-title',tabindex:'-1',class:'share-done',text:result.text}),el('p',{class:'muted',text:'We review every report ourselves. If you gave your email, we may contact you about it.'}),el('div',{class:'actions'},el('a',{class:'btn',href:'p.html?u='+encodeURIComponent(slug),text:'Back to the card'})));host.firstChild.focus();return}
