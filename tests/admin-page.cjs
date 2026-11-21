@@ -57,7 +57,8 @@ assert.doesNotMatch(ui+coreSrc+page,/innerHTML|outerHTML|insertAdjacentHTML|docu
 assert.doesNotMatch(ui+coreSrc,/localStorage|sessionStorage|indexedDB|caches\./,'report data is never stored in the browser');
 assert.doesNotMatch(ui,/\.from\(|\.storage\b|functions\.invoke/,'no tables, files or server functions: admin functions only');
 const rpcs=[...ui.matchAll(/\.rpc\(('[a-z_]+'|fn)/g)].map(m=>m[1]);
-assert.deepEqual([...new Set(rpcs)].sort(),["'admin_list_reports'","'admin_report_history'",'fn'].sort(),'only admin functions are called');
+assert.deepEqual([...new Set(rpcs)].sort(),["'admin_get_report'","'admin_list_reports'","'admin_report_history'",'fn'].sort(),'only admin functions are called');
+assert.ok(ui.includes("rpc('admin_get_report',{p_report_id:id})"),'one report is opened by its id');assert.doesNotMatch(ui,/p_limit:200/,'never by scanning the list');
 assert.doesNotMatch(ui+coreSrc,/network_hash|card_owner_id|owner_id|dedupe_key|submission_id/,'the page never asks for or shows who reported, or who owns the card');
 assert.doesNotMatch(ui+coreSrc+page,/sb_secret|service_role|TURNSTILE_SECRET|SHARE_HASH_SALT|re_[A-Za-z0-9]{6}/,'no secrets');
 for(const f of ['index.html','p.html','report.html','privacy.html','sw.js','manifest.webmanifest','app.js','cards.js'])assert.doesNotMatch(read(f),/admin\.html|admin\.js|admin-core/,'not linked from '+f);
@@ -84,7 +85,7 @@ function scenario(sources,setup={}){
  const loading=new Node('p');loading.id='admin-status';const host=new Node('section');host.id='admin';host.hidden=true;doc.body.append(loading,host);
 
  // Stand-in database and Auth. The admin check is the same as vale_private.require_admin.
- const sim={session:true,admin:true,aal:'aal1',factors:[],calls:[],asks:[],askAnswer:true,clientOptions:null,timers:[],fail:null,...setup};
+ const sim={session:true,admin:true,aal:'aal1',factors:[],calls:[],asks:[],askAnswer:true,clientOptions:null,timers:[],fail:null,filler:0,...setup};
  const reports=[
   {id:'r1',card_id:'c1',card_slug:'ana-ruiz-1a2b3c',card_snapshot:{display_name:'Ana Ruiz',website:'ana.example'},card_current:{display_name:'Ana Ruiz',website:'ana-new.example'},card_published:true,card_hidden:false,
    category:'impersonation',details:'Pretends to be <b>my</b> company.',reporter_email:'reporter@example.invalid',status:'new',repeat_count:2,legal_hold:false,created_at:'2026-11-20T10:00:00Z',last_reported_at:'2026-11-21T10:00:00Z',closed_at:null,reports_on_card:1,reporter_dismissed:0,reporter_blocked:false,
@@ -92,6 +93,7 @@ function scenario(sources,setup={}){
   {id:'r2',card_id:'c2',card_slug:'bo-lee-9z8y7x',card_snapshot:{display_name:'Bo Lee'},card_current:{display_name:'Bo Lee'},card_published:true,card_hidden:false,
    category:'spam',details:'',reporter_email:null,status:'dismissed',repeat_count:1,legal_hold:false,created_at:'2026-11-19T10:00:00Z',last_reported_at:'2026-11-19T10:00:00Z',closed_at:'2026-11-19T12:00:00Z',reports_on_card:1,reporter_dismissed:3,reporter_blocked:false},
  ];
+ for(let i=0;i<sim.filler;i++)reports.push({id:'f'+i,card_id:'cf',card_slug:'filler-card-000000',card_snapshot:{display_name:'Filler'},card_current:{display_name:'Filler'},card_published:true,card_hidden:false,category:'spam',details:'',reporter_email:null,status:'new',repeat_count:1,legal_hold:false,created_at:'2026-01-01T00:00:'+String(i%60).padStart(2,'0')+'.'+String(i).padStart(3,'0')+'Z',last_reported_at:'2026-01-01T00:00:00Z',closed_at:null,reports_on_card:sim.filler,reporter_dismissed:0,reporter_blocked:false});
  const history={r1:[{created_at:'2026-11-21T11:00:00Z',action:'note',from_status:null,to_status:null,note:'Checked the website.',admin_email:'admin@example.invalid'}]};
  const err=(code,message,hint)=>({data:null,error:{code,message,hint}});
  const log=(report,action,note,extra={})=>{(history[report.id]||=[]).push({created_at:'2026-11-21T12:00:00Z',action,note,admin_email:'admin@example.invalid',from_status:null,to_status:null,...extra})};
@@ -114,9 +116,11 @@ function scenario(sources,setup={}){
    if(sim.aal!=='aal2')return err('42501','Moderation needs two-step sign-in. Sign in with your authenticator code and try again.','mfa_required');
    if(sim.fail)return err('P0001',sim.fail);
    const r=reports.find(x=>x.id===args.p_report_id)||reports.find(x=>x.card_id===args.p_card_id);
+   if(fn!=='admin_list_reports'&&fn!=='admin_report_history'&&fn!=='admin_get_report'&&!r)return err('P0001','Report not found.');
    const note=String(args.p_note??'').trim(),closing=['dismissed','action_taken'].includes(args.p_status);
    switch(fn){
-    case 'admin_list_reports':{const rows=reports.filter(x=>!args.p_status||x.status===args.p_status).sort((a,b)=>(['new','reviewing'].includes(b.status)-['new','reviewing'].includes(a.status))||a.created_at.localeCompare(b.created_at));return {data:rows.slice(args.p_offset,args.p_offset+args.p_limit).map(x=>({...x})),error:null}}
+    case 'admin_get_report':return {data:reports.filter(x=>x.id===args.p_report_id).map(x=>({...x})),error:null};
+    case 'admin_list_reports':{args={...args,p_limit:Math.min(Math.max(args.p_limit,1),200)};const rows=reports.filter(x=>!args.p_status||x.status===args.p_status).sort((a,b)=>(['new','reviewing'].includes(b.status)-['new','reviewing'].includes(a.status))||a.created_at.localeCompare(b.created_at));return {data:rows.slice(args.p_offset,args.p_offset+args.p_limit).map(x=>({...x})),error:null}}
     case 'admin_report_history':return {data:(history[args.p_report_id]||[]).map(x=>({...x})),error:null};
     case 'admin_set_report_status':if(closing&&!note)return err('P0001','Add a short note explaining the decision.');log(r,'status',note,{from_status:r.status,to_status:args.p_status});r.status=args.p_status;r.closed_at=closing?'2026-11-21T12:00:00Z':null;if(closing)r.reporter_email=null;return {data:null,error:null};
     case 'admin_add_note':if(!note)return err('P0001','Add a short note explaining the decision.');log(r,'note',note);return {data:null,error:null};
@@ -231,6 +235,19 @@ async function behaviour(sources){
  t.sim.aal='aal1';await t.click('Add note');t.fill('admin-note','x');await t.submit();
  assert.equal(t.heading(),'Two-step sign-in');assert.doesNotMatch(t.text(),/Ana Ruiz|impersonate|Requested by counsel/,'report data is cleared');
 
+ // A report past the first 200 opens, and stays open after a decision (it was lost when found by scanning the list).
+ t=scenario(sources,{aal:'aal2',filler:250});await t.settle();
+ for(let i=0;i<5;i++)await t.click('Show more');
+ const far=t.host.querySelectorAll('.admin-row').find(r=>/Ana Ruiz/.test(r.textContent));assert.ok(far,'the report appears after Show more');
+ assert.ok(t.host.querySelectorAll('.admin-row').indexOf(far)>=200,'test setup: past the first 200');
+ far.onclick();await t.settle();assert.equal(t.heading(),'Impersonation or fake identity','opens a report past the first 200');
+ assert.deepEqual(t.rpcCalls('admin_get_report').pop()[1],{p_report_id:'r1'});
+ await t.click('Mark as reviewing');await t.submit();
+ assert.equal(t.heading(),'Impersonation or fake identity','stays open after a decision');assert.match(t.text(),/Status changed: New → Reviewing/);
+ // A report deleted on schedule meanwhile: the database’s own answer is shown, and nothing changes.
+ t.reports.splice(t.reports.findIndex(r=>r.id==='r1'),1);await t.click('Add note');t.fill('admin-note','x');await t.submit();
+ assert.match(t.statusText(),/Report not found./);
+
  // Inactivity: signed out on this device after 15 minutes.
  t=scenario(sources,{aal:'aal2'});await t.settle();
  const timer=t.sim.timers.filter(x=>x.fn).pop();assert.equal(timer.ms,15*60000);
@@ -255,6 +272,7 @@ const SABOTAGE=[
  ['restore offered for a visible card','core',"if(report.card_hidden)out.push('restore');else if","out.push('restore');if"],
  ['sign-in read from the address','ui',"detectSessionInUrl:false","detectSessionInUrl:true"],
  ['wrong codes sent anyway','core',"/^\\d{6}$/.test(","/^\\d{2,}$/.test("],
+ ['a report found by scanning the first 200','ui',"state.client.rpc('admin_get_report',{p_report_id:id})","state.client.rpc('admin_list_reports',{p_status:null,p_limit:200,p_offset:0}).then(r=>r.error?r:{data:(r.data||[]).filter(x=>x.id===id)})"],
  ['signing out of every device','ui',"signOut({scope:'local'})","signOut({scope:'global'})"],
 ];
 (async()=>{

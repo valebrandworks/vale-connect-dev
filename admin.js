@@ -145,11 +145,12 @@
  }
 
  // ---------- One report ----------
- // There is no single-report lookup, so the newest copy is found in the full list (open reports first).
+ // The newest copy of one report, by its id (admin_get_report), however many reports there are.
  async function fresh(id){
-  const {data,error}=await state.client.rpc('admin_list_reports',{p_status:null,p_limit:200,p_offset:0});
+  const {data,error}=await state.client.rpc('admin_get_report',{p_report_id:id});
   if(error)return {error};
-  return {report:(data||[]).find(r=>r.id===id)||null};
+  const rows=Array.isArray(data)?data:[];
+  return {report:rows.length===1&&rows[0].id===id?rows[0]:null};
  }
  async function open(id){
   const e=++state.epoch;
