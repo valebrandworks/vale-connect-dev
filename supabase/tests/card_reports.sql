@@ -86,7 +86,9 @@ DO $$ BEGIN
  IF pg_temp.report(current_setting('vale.os'), 'spam', '', '') <> 'invalid' THEN RAISE EXCEPTION 'CHECK: missing network accepted'; END IF;
  IF pg_temp.report(current_setting('vale.ds'), 'spam') <> 'unavailable' THEN RAISE EXCEPTION 'CHECK: a private draft could be reported'; END IF;
  IF pg_temp.report('no-such-card-xyz', 'spam') <> 'unavailable' THEN RAISE EXCEPTION 'CHECK: an unknown card could be reported'; END IF;
- IF (SELECT count(*) FROM vale_private.card_reports) <> 0 OR (SELECT count(*) FROM vale_private.report_attempts) <> 0 THEN RAISE EXCEPTION 'CHECK: invalid reports left records'; END IF;
+ -- Only this test's cards are counted: the database may already hold real reports.
+ IF (SELECT count(*) FROM vale_private.card_reports WHERE card_id IN (current_setting('vale.oc')::uuid, current_setting('vale.od')::uuid, current_setting('vale.xc')::uuid)) <> 0 OR (SELECT count(*) FROM vale_private.report_attempts WHERE card_id IN (current_setting('vale.oc')::uuid, current_setting('vale.od')::uuid, current_setting('vale.xc')::uuid)) <> 0
+  THEN RAISE EXCEPTION 'CHECK: invalid reports left records'; END IF;
 END $$;
 
 -- C. A valid report is stored once, with the card's public details only, cleaned text and a lower-case email.
@@ -126,7 +128,7 @@ DO $$ BEGIN
  UPDATE vale_private.report_attempts SET created_at = now() - interval '25 hours' WHERE network_hash = repeat('a', 64);
  IF pg_temp.report(current_setting('vale.os'), 'spam', 'A new day') <> 'stored' THEN RAISE EXCEPTION 'CHECK: old attempts still counted'; END IF;
  -- Many reports never hide a card on their own.
- IF NOT (SELECT published FROM public.public_cards WHERE id = current_setting('vale.oc')::uuid) OR EXISTS (SELECT 1 FROM vale_private.card_holds)
+ IF NOT (SELECT published FROM public.public_cards WHERE id = current_setting('vale.oc')::uuid) OR EXISTS (SELECT 1 FROM vale_private.card_holds WHERE card_id IN (current_setting('vale.oc')::uuid, current_setting('vale.od')::uuid, current_setting('vale.xc')::uuid))
  THEN RAISE EXCEPTION 'CHECK: reports hid a card without an admin decision'; END IF;
 END $$;
 
@@ -256,7 +258,7 @@ DO $$ BEGIN
  -- Lifting the restriction leaves the card private: only its owner publishes it again.
  IF EXISTS (SELECT 1 FROM public.get_public_card(current_setting('vale.os'))) OR (SELECT published FROM public.public_cards WHERE id = current_setting('vale.oc')::uuid)
   THEN RAISE EXCEPTION 'CHECK: lifting the restriction published the card'; END IF;
- IF EXISTS (SELECT 1 FROM vale_private.card_holds) THEN RAISE EXCEPTION 'CHECK: hold not removed'; END IF;
+ IF EXISTS (SELECT 1 FROM vale_private.card_holds WHERE card_id IN (current_setting('vale.oc')::uuid, current_setting('vale.od')::uuid, current_setting('vale.xc')::uuid)) THEN RAISE EXCEPTION 'CHECK: hold not removed'; END IF;
  IF NOT EXISTS (SELECT 1 FROM public.notifications WHERE kind = 'card_restored' AND card_id = current_setting('vale.oc')::uuid) THEN RAISE EXCEPTION 'CHECK: owner not told of the restore'; END IF;
  -- The blocked network's reports are quietly not stored; others still are.
  IF pg_temp.report(current_setting('vale.xs'), 'harassment', 'blocked one', 'a') <> 'blocked' THEN RAISE EXCEPTION 'CHECK: a blocked network''s report was accepted'; END IF;
@@ -313,7 +315,7 @@ DO $$ DECLARE n integer := (SELECT count(*) FROM vale_private.card_reports WHERE
  IF (SELECT count(*) FROM vale_private.card_reports WHERE card_slug = current_setting('vale.os') AND card_id IS NULL AND card_owner_id IS NULL AND card_snapshot ? 'display_name') <> n
  THEN RAISE EXCEPTION 'CHECK: deleting the account removed reports'; END IF;
  DELETE FROM auth.users WHERE id = current_setting('vale.a')::uuid;
- IF EXISTS (SELECT 1 FROM vale_private.platform_admins) OR NOT EXISTS (SELECT 1 FROM vale_private.moderation_actions WHERE admin_id IS NULL AND action = 'hide_card' AND card_id IS NULL)
+ IF EXISTS (SELECT 1 FROM vale_private.platform_admins WHERE user_id = current_setting('vale.a')::uuid) OR NOT EXISTS (SELECT 1 FROM vale_private.moderation_actions WHERE admin_id IS NULL AND action = 'hide_card' AND card_id IS NULL)
  THEN RAISE EXCEPTION 'CHECK: deleting the admin account lost the log or kept admin rights'; END IF;
 END $$;
 

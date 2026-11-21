@@ -225,6 +225,7 @@ dialog.ask p{margin:0 0 16px;line-height:1.5}
 .hold-notice p{margin:6px 0}
 .hold-notice .btn{margin-top:8px}
 .pill.held{border-color:#a9535366;color:var(--danger)}
+.hold-notice[data-kind=lifted]{border-color:#c9a45c33;background:#c9a45c10}
 /* Private report review (admin.html) */
 .admin h1{font-size:22px;margin:12px 0 8px}
 .admin h1:focus{outline:none}
