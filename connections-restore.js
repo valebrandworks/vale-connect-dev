@@ -4,10 +4,22 @@
  const core=typeof module!=='undefined'&&module.exports?require('./cloud-connections-core.js'):root.ValeCloudConnections;
  const MAX_BYTES=10*1024*1024,MAX_RECORDS=5000,uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  const limits={full_name:90,business_name:90,email:120,phone:40,job_title:80,website:300,social_links:3000,category:40,next_step:40,notes:10000,met_where:200,met_how:200,introduced_by:120,source_identity:4096,source_url:8192};
+ // A backup is accepted only for the environment of the page's own web address (config.js), never one named inside the file.
+ // Tests have no web address, so they use the development environment; that fallback is development-only and is removed from
+ // the production bundle, where a missing or unknown address refuses every restore.
+ function backupEnvironment(){
+  const cfg=root.ValeConfig,host=root.location&&root.location.hostname;
+  let target=cfg&&host?cfg.backupFor(host):null;
+  /* dev-only:start */
+  if(!target)target={environment:'development'};
+  /* dev-only:end */
+  if(!target)throw Error('Backups are not available on this web address.');
+  return target.environment;
+ }
  function parse(text){
   if(typeof text!=='string'||new TextEncoder().encode(text).length>MAX_BYTES)throw Error('Choose a JSON backup no larger than 10 MB.');
   let data;try{data=JSON.parse(text.replace(/^\ufeff/,''))}catch{throw Error('This file can’t be read as a backup. Choose a Full backup (JSON) downloaded from VALE Connect.');}
-  if(!data||data.format!=='vale-connect-cloud-connections'||data.version!==1||data.environment!=='development')throw Error('This isn’t a VALE Connect backup file. Choose a Full backup (JSON) downloaded from VALE Connect.');
+  if(!data||data.format!=='vale-connect-cloud-connections'||data.version!==1||data.environment!==backupEnvironment())throw Error('This isn’t a VALE Connect backup file. Choose a Full backup (JSON) downloaded from VALE Connect.');
   if(!Array.isArray(data.connections)||data.connections.length>MAX_RECORDS||data.count!==data.connections.length)throw Error('The backup count is invalid or exceeds 5,000 connections. Nothing was imported.');
   const records=data.connections.map((row,index)=>{
    const fail=()=>{throw Error('Connection '+(index+1)+' has invalid or unsupported fields. Nothing was imported.');};

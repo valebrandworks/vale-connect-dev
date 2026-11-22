@@ -9,13 +9,13 @@
  'use strict';
  const ENVIRONMENTS=Object.freeze({
   production:Object.freeze({name:'production',label:'',supabaseUrl:'https://uhribjaiyuwivzqxusur.supabase.co',
-   publishableKey:'sb_publishable_Va2YN7LUG0ZOuwril533WA__PUz_PL_',turnstileSiteKey:'0x4AAAAAAGMQcyUJYuAxhLXp',storagePrefix:'vale-connect-'}),
+   publishableKey:'sb_publishable_Va2YN7LUG0ZOuwril533WA__PUz_PL_',turnstileSiteKey:'0x4AAAAAAGMQcyUJYuAxhLXp',storagePrefix:'vale-connect-',backupEnvironment:'production',backupPrefix:'vale-connect-cloud-connections-'}),
   /* dev-only:start */
   development:Object.freeze({name:'development',label:'Development',supabaseUrl:'https://jlprxnmdvoloahssjlnu.supabase.co',
-   publishableKey:'sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_',turnstileSiteKey:'0x4AAAAAAF5bZ3cludhKsLJJ',storagePrefix:'vale-connect-dev-'}),
+   publishableKey:'sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_',turnstileSiteKey:'0x4AAAAAAF5bZ3cludhKsLJJ',storagePrefix:'vale-connect-dev-',backupEnvironment:'development',backupPrefix:'vale-dev-cloud-connections-'}),
   // This computer only: the development project with Cloudflare's published TEST site key, whose tokens the server never accepts.
   local:Object.freeze({name:'local',label:'Local',supabaseUrl:'https://jlprxnmdvoloahssjlnu.supabase.co',
-   publishableKey:'sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_',turnstileSiteKey:'1x00000000000000000000AA',storagePrefix:'vale-connect-dev-'}),
+   publishableKey:'sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_',turnstileSiteKey:'1x00000000000000000000AA',storagePrefix:'vale-connect-dev-',backupEnvironment:'development',backupPrefix:'vale-dev-cloud-connections-'}),
   /* dev-only:end */
  });
  const HOSTS=Object.freeze({'connect.valebrandworks.com':'production',
@@ -31,6 +31,9 @@
   return Object.freeze({...env,functionsUrl:env.supabaseUrl+'/functions/v1'});
  }
  const functionUrl=(hostname,name)=>{const env=forHost(hostname);return env?env.functionsUrl+'/'+name:null};
- const api={ENVIRONMENTS,HOSTS,forHost,functionUrl};
+ // Which backups a web address may export and restore: its environment name and file-name prefix, or null for any other address.
+ // Backups are tied to the environment chosen here (by the exact hostname), never to anything inside a backup file.
+ const backupFor=hostname=>{const env=forHost(hostname);return env?Object.freeze({environment:env.backupEnvironment,prefix:env.backupPrefix}):null};
+ const api={ENVIRONMENTS,HOSTS,forHost,functionUrl,backupFor};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeConfig=api;
 })(typeof window!=='undefined'?window:globalThis);

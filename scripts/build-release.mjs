@@ -75,7 +75,9 @@ const REPLACE = {
 
 // Anything here in the output fails the build.
 export const FORBIDDEN = [dev.supabaseUrl, dev.publishableKey, dev.turnstileSiteKey, local.turnstileSiteKey, 'jlprxnmdvoloahssjlnu', 'dev.valebrandworks.com',
-  'localhost', '127.0.0.1', 'vale-connect-dev', 'DEVELOPMENT', 'Development', 'VALE Dev', 'dev-only', 'sb_secret_', 'service_role', 'SUPABASE_SERVICE'];
+  'localhost', '127.0.0.1', 'vale-connect-dev', 'DEVELOPMENT', 'Development', 'VALE Dev', 'dev-only', 'sb_secret_', 'service_role', 'SUPABASE_SERVICE',
+  // Development backup labels (file name and environment): a production backup must never carry them.
+  'vale-dev-cloud-connections-', "environment:'development'", '"development"', "'development'"];
 
 /** @param {string} name @param {string} text */
 export function transform(name, text) {
