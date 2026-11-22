@@ -29,7 +29,7 @@
  function checkNewPassword(password,confirm,{current='',requireCurrent=false}={}){
   if(requireCurrent&&!current)return 'Enter your current password.';
   if(String(password||'').length<PASSWORD_MIN)return 'Use at least '+PASSWORD_MIN+' characters for your password.';
-  if(byteLength(password)>PASSWORD_MAX_BYTES)return 'That password is too long. Use '+PASSWORD_MAX_BYTES+' characters or fewer.';
+  if(byteLength(password)>PASSWORD_MAX_BYTES)return TOO_LONG;
   if(password!==confirm)return 'Those passwords don’t match.';
   if(requireCurrent&&password===current)return 'Choose a different password from your current one.';
   return '';
@@ -53,7 +53,7 @@
   // Supabase uses the code weak_password for several reasons; the reasons (or the wording) tell them apart.
   if(reasons.includes('pwned')||/pwned|leaked|compromised|breach|known to be weak/.test(m))return 'That password has appeared in a data breach. Choose a different one.';
   if(reasons.includes('length')||(/password/.test(m)&&/(at least|short|too short)/.test(m)))return 'Use at least '+PASSWORD_MIN+' characters for your password.';
-  if(/too long|longer than|72|maximum.*(character|length)/.test(m)&&/password/.test(m))return 'That password is too long. Use '+PASSWORD_MAX_BYTES+' characters or fewer.';
+  if(/too long|longer than|72|maximum.*(character|length)/.test(m)&&/password/.test(m))return TOO_LONG;
   if(/same_password|different from the old|different password|should be different/.test(m+code))return 'That’s the password you already use. Choose a different one.';
   if(/reauthentication_needed|reauthentication/.test(m+code))return 'For your security, sign out and sign in again, then change your password.';
   if(context==='password'&&/invalid.*(credential|password)|incorrect|current password|not valid|wrong/.test(m+code))return 'Your current password wasn’t accepted. Check it and try again.';
@@ -65,10 +65,14 @@
   return 'Something went wrong. Please try again.';
  }
  const CHECK_EMAIL='Check your email for a confirmation link, then come back and sign in.';
+ // The server's limit is 72 BYTES (verified on development): 72 plain letters, or fewer when the password has accented or non-Latin characters.
+ const TOO_LONG='That password is too long. Use 72 letters or numbers at most (fewer if it has accented or non-Latin characters).';
+ const OTHERS_SIGNED_OUT='Password changed. Your other devices were signed out. A page already open on another device can keep working for up to an hour.';
+ const OTHERS_NOT_SIGNED_OUT='Password changed, but we couldn’t sign out your other devices. If someone else may know your old password, sign out on those devices yourself.';
  const EMAIL_TROUBLE='We couldn’t send the email just now. Please try again in a little while.';
  const RESET_SENT='If that email has an account, a reset link is on its way. Check your inbox and spam folder. If nothing arrives in a few minutes, try again later.';
  const RESENT='If that email is waiting for confirmation, a new link is on its way.';
 
- const api={PASSWORD_MIN,PASSWORD_MAX_BYTES,EMAIL_TROUBLE,AGREEMENT_VERSION,PRIVACY_URL,TERMS_URL,CHECK_EMAIL,RESET_SENT,RESENT,siteKey,emailOk,agreement,checkSignIn,checkNewPassword,checkSignUp,message};
+ const api={PASSWORD_MIN,PASSWORD_MAX_BYTES,TOO_LONG,OTHERS_SIGNED_OUT,OTHERS_NOT_SIGNED_OUT,EMAIL_TROUBLE,AGREEMENT_VERSION,PRIVACY_URL,TERMS_URL,CHECK_EMAIL,RESET_SENT,RESENT,siteKey,emailOk,agreement,checkSignIn,checkNewPassword,checkSignUp,message};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeAuthCore=api;
 })(typeof window!=='undefined'?window:globalThis);
