@@ -10,7 +10,12 @@ import path from 'node:path';
 const SUPABASE_STUB = `
  CREATE SCHEMA extensions; -- Supabase keeps extensions such as pgcrypto here.
  CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS;
- CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, email text);
+ CREATE ROLE supabase_auth_admin NOLOGIN; -- the role Supabase Auth uses to call hook functions
+ CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, email text, created_at timestamptz DEFAULT now(), email_confirmed_at timestamptz,
+  confirmed_at timestamptz, last_sign_in_at timestamptz, invited_at timestamptz, is_anonymous boolean DEFAULT false, is_sso_user boolean DEFAULT false,
+  confirmation_sent_at timestamptz, recovery_sent_at timestamptz);
+ CREATE TABLE auth.identities(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE, provider text NOT NULL DEFAULT 'email');
+ CREATE TABLE auth.mfa_factors(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE, factor_type text DEFAULT 'totp', status text DEFAULT 'verified');
  CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claims',true)::json->>'sub','')::uuid $$;
  CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb,'{}'::jsonb) $$;
  GRANT USAGE ON SCHEMA public, auth, extensions TO anon, authenticated, service_role;
