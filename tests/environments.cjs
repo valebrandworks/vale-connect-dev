@@ -71,6 +71,15 @@ assert.match(read('index.html'),/<meta name="robots" content="noindex">/,'the ap
  for(const n of names)assert.doesNotMatch(n,/^(tests|scripts|supabase|docs|node_modules|release)\/|^package|^README|^\.|\.cjs$|\.mjs$|\.sql$|\.md$/,'only site files are bundled: '+n);
  for(const need of ['index.html','p.html','report.html','admin.html','config.js','card-page.js','report-page.js','offline.js','sw.js','manifest.webmanifest','CNAME','robots.txt','assets/icons/icon-192.png'])assert.ok(files.has(need),'bundled: '+need);
  assert.equal(files.get('CNAME').toString(),'connect.valebrandworks.com\n');assert.equal(files.get('robots.txt').toString(),'User-agent: *\nDisallow: /\n','search engines kept out until launch');
+ // Cloudflare Pages response headers: exact content, HSTS scoped to this host only, no clash with the pages' own policy.
+ assert.ok(files.has('_headers'),'the bundle carries the security headers');
+ const H=files.get('_headers').toString('utf8');
+ assert.equal(H,b.HEADERS);
+ assert.deepEqual(H.trimEnd().split('\n'),['/*','  Strict-Transport-Security: max-age=86400','  X-Frame-Options: DENY',"  Content-Security-Policy: frame-ancestors 'none'",'  X-Content-Type-Options: nosniff','  Referrer-Policy: strict-origin-when-cross-origin','  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()','  X-Robots-Tag: noindex, nofollow'],'the approved headers, in order');
+ assert.doesNotMatch(H,/includeSubDomains|preload/i,'HSTS covers this host only and is not preloaded');
+ assert.equal(H.match(/Content-Security-Policy:.*/g).length,1);assert.doesNotMatch(H,/script-src|connect-src|frame-src|default-src/,'the header adds only frame-ancestors, so Supabase and Turnstile rules stay in each page');
+ assert.match(H,/X-Robots-Tag: noindex/,'search engines kept out until launch');
+ for(const bad of b.FORBIDDEN)assert.ok(!H.includes(bad),'_headers keeps a development value: '+bad);
  for(const [n,bytes] of files)if(/\.(html|js|webmanifest|txt)$/.test(n)){const t=bytes.toString('utf8');for(const bad of b.FORBIDDEN)assert.ok(!t.includes(bad),`${n} keeps a development value: ${bad}`)}
  // The bundled settings know production only.
  const ctx={};vm.createContext(ctx);vm.runInContext(files.get('config.js').toString(),ctx);
