@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections', 'card_reports', 'admin_get_report', 'lift_restriction', 'global_rate_limits'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED, REPORTS, GET_REPORT, LIFT, GLOBAL] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections', 'card_reports', 'admin_get_report', 'lift_restriction', 'global_rate_limits', 'auth_hardening'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED, REPORTS, GET_REPORT, LIFT, GLOBAL, AUTH] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -58,6 +58,7 @@ const recordShare = sharingSql.slice(shareStart, shareEnd).replace(/^CREATE FUNC
 const withoutRule = (find, replace = '') => { if (!recordShare.includes(find)) throw new Error('Sharing rule not found: ' + find); return recordShare.replace(find, replace); };
 // Report functions with one rule changed, taken from the reports migration.
 // Global rate limits: the migration, its rollback (keeps data) and the optional cleanup (removes the kept leftovers).
+const AH_UP = 'supabase/migrations/20261123000000_add_auth_hardening.sql', AH_DOWN = 'supabase/rollback/20261123000000_add_auth_hardening.down.sql', AH_CLEAN = 'supabase/rollback/20261123000000_add_auth_hardening.cleanup.sql';
 const GL_UP = 'supabase/migrations/20261122010000_add_global_rate_limits.sql', GL_DOWN = 'supabase/rollback/20261122010000_add_global_rate_limits.down.sql', GL_CLEAN = 'supabase/rollback/20261122010000_add_global_rate_limits.cleanup.sql';
 // submit_card_report from the global-limits migration, with one rule changed (to prove the global tests notice).
 const globalReport = (find, replace = '') => {
@@ -211,6 +212,14 @@ const brokenRules = [
   ['global: no global report daily limit', GLOBAL, globalReport("IF used > (s->>'global_all_per_day')::int THEN", 'IF false THEN')],
   ['global: refused reports use up the global report budget', GLOBAL, globalReport("WHERE NOT a.refused AND a.created_at > now() - interval '1 hour'", "WHERE a.created_at > now() - interval '1 hour'")],
   ['global: the lock helper is callable by the server role', GLOBAL, 'GRANT EXECUTE ON FUNCTION vale_private.try_lock(text) TO service_role'],
+  ['auth: block list ignored', AUTH, 'CREATE OR REPLACE FUNCTION vale_private.email_domain_blocked(p_domain text) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$'],
+  ['auth: allow list ignored', AUTH, 'CREATE OR REPLACE FUNCTION vale_private.email_domain_blocked(p_domain text) RETURNS boolean LANGUAGE sql AS $$ SELECT EXISTS (SELECT 1 FROM vale_private.blocked_email_domains b WHERE b.domain = lower(p_domain)) $$'],
+  ['auth: server role can call the hook', AUTH, 'GRANT EXECUTE ON FUNCTION vale_private.before_user_created(jsonb) TO service_role'],
+  ['auth: anyone can list purge candidates', AUTH, 'GRANT EXECUTE ON FUNCTION public.unconfirmed_purge_candidates(integer, integer, uuid) TO authenticated'],
+  ['auth: block list readable by the server role', AUTH, 'GRANT SELECT ON vale_private.blocked_email_domains TO service_role'],
+  ['auth: overview open to every signed-in account', AUTH, "CREATE OR REPLACE FUNCTION vale_private.require_admin() RETURNS uuid LANGUAGE sql AS $$ SELECT auth.uid() $$"],
+  ['auth: purge lists confirmed accounts', AUTH, "CREATE OR REPLACE FUNCTION public.unconfirmed_purge_candidates(p_days integer DEFAULT 7, p_limit integer DEFAULT 200, p_user uuid DEFAULT NULL) RETURNS TABLE (user_id uuid, created_at timestamptz) LANGUAGE sql SECURITY DEFINER SET search_path TO '' AS $$ SELECT u.id, u.created_at FROM auth.users u WHERE u.created_at < now() - make_interval(days => p_days) LIMIT p_limit $$"],
+  ['auth: the per-account check ignores the account', AUTH, "CREATE OR REPLACE FUNCTION public.unconfirmed_purge_candidates(p_days integer DEFAULT 7, p_limit integer DEFAULT 200, p_user uuid DEFAULT NULL) RETURNS TABLE (user_id uuid, created_at timestamptz) LANGUAGE sql SECURITY DEFINER SET search_path TO '' AS $$ SELECT u.id, u.created_at FROM auth.users u WHERE u.email_confirmed_at IS NULL AND u.last_sign_in_at IS NULL AND u.created_at < now() - make_interval(days => p_days) LIMIT p_limit $$"],
 ];
 for (const [label, file, sabotage] of brokenRules) {
   const broken = await rebuild(repo);
@@ -264,6 +273,7 @@ await ckDb.close();
 // Unlimited Free connections: the rollback restores the 1,000 limit exactly, and re-applying restores the same structure.
 const UC_UP = 'supabase/migrations/20261112000000_unlimited_free_connections.sql', UC_DOWN = 'supabase/rollback/20261112000000_unlimited_free_connections.down.sql';
 const ucDb = await rebuild(repo);
+await ucDb.exec(sql(AH_DOWN)); await ucDb.exec(sql(AH_CLEAN));
 await ucDb.exec(sql(GL_DOWN));
 await ucDb.exec(sql(GL_CLEAN));   // the newer migration depends on the older ones: take it off first (the comparison is against the state without it)
 const ucBefore = await snapshotOf(ucDb);
@@ -280,6 +290,7 @@ await ucDb.close();
 
 // Reports: the rollback removes the feature (leaving cards and notifications as they were), and re-applying restores the same structure.
 const crDb = await rebuild(repo);
+await crDb.exec(sql(AH_DOWN)); await crDb.exec(sql(AH_CLEAN));
 await crDb.exec(sql(GL_DOWN));
 await crDb.exec(sql(GL_CLEAN));   // newer migration first (the comparison is against the state without it)
 const crBefore = await snapshotOf(crDb);
@@ -334,6 +345,22 @@ await glDb.exec('DELETE FROM public.share_attempts; DELETE FROM vale_private.rep
 await glDb.exec(sql(GL_UP));
 report(noPosition(await snapshotOf(glDb)) === noPosition(glBefore), 'global limits: re-applying after rollback and cleanup restores the same structure');
 await glDb.close();
+
+// Authentication hardening: the rollback removes the functions and keeps the lists and logs; the optional cleanup removes those;
+// re-applying restores the same structure.
+const ahDb = await rebuild(repo);
+const ahBefore = await snapshotOf(ahDb);
+await ahDb.exec("INSERT INTO vale_private.allowed_email_domains(domain, reason) VALUES ('keep-me.example', 'kept through rollback'); INSERT INTO vale_private.auth_hook_log(kind, domain) VALUES ('blocked', 'keep.example');");
+await ahDb.exec(sql(AH_DOWN));
+const ahDown = await snapshotOf(ahDb);
+report(!ahDown.functions.some(f => /before_user_created|email_domain_blocked|unconfirmed_purge_candidates|record_purge_run|record_auth_stats|auth_stats_now|admin_auth_overview/.test(f.signature)), 'auth hardening rollback: removes the hook, the purge list and the statistics functions');
+report(await count(ahDb, 'vale_private.blocked_email_domains') > 40 && await count(ahDb, 'vale_private.allowed_email_domains') === 1 && await count(ahDb, 'vale_private.auth_hook_log') === 1, 'auth hardening rollback: keeps the block list, allow list and hook log');
+await ahDb.exec(sql(AH_CLEAN));
+report(!(await snapshotOf(ahDb)).tables.some(t => /blocked_email_domains|allowed_email_domains|auth_hook_log|auth_maintenance_log|auth_daily_stats/.test(t.name)), 'auth hardening cleanup: removes only the new tables');
+report(await count(ahDb, 'public.public_cards') === 0 && await count(ahDb, 'auth.users') === 0, 'auth hardening cleanup: touches no accounts or cards');
+await ahDb.exec(sql(AH_UP));
+report(noPosition(await snapshotOf(ahDb)) === noPosition(ahBefore), 'auth hardening: re-applying after rollback and cleanup restores the same structure');
+await ahDb.close();
 
 // Lifting a restriction: the rollback puts back exactly the stage A function, and re-applying restores the same structure.
 const liftDb = await rebuild(repo), stageA = await rebuild(repo);
