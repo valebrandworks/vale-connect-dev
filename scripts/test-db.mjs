@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections', 'card_reports', 'admin_get_report', 'lift_restriction'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED, REPORTS, GET_REPORT, LIFT] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections', 'card_reports', 'admin_get_report', 'lift_restriction', 'global_rate_limits'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED, REPORTS, GET_REPORT, LIFT, GLOBAL] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -57,6 +57,16 @@ if (shareStart < 0 || shareEnd < 8) throw new Error('record_share not found for 
 const recordShare = sharingSql.slice(shareStart, shareEnd).replace(/^CREATE FUNCTION/, 'CREATE OR REPLACE FUNCTION');
 const withoutRule = (find, replace = '') => { if (!recordShare.includes(find)) throw new Error('Sharing rule not found: ' + find); return recordShare.replace(find, replace); };
 // Report functions with one rule changed, taken from the reports migration.
+// Global rate limits: the migration, its rollback (keeps data) and the optional cleanup (removes the kept leftovers).
+const GL_UP = 'supabase/migrations/20261122010000_add_global_rate_limits.sql', GL_DOWN = 'supabase/rollback/20261122010000_add_global_rate_limits.down.sql', GL_CLEAN = 'supabase/rollback/20261122010000_add_global_rate_limits.cleanup.sql';
+// submit_card_report from the global-limits migration, with one rule changed (to prove the global tests notice).
+const globalReport = (find, replace = '') => {
+  const s = sql(GL_UP).replace(/\r\n/g, '\n'), a = s.indexOf('CREATE OR REPLACE FUNCTION public.submit_card_report('), b = s.indexOf('\nEND $$;', a) + 8;
+  if (a < 0 || b < 8) throw new Error('global submit_card_report not found');
+  const body = s.slice(a, b);
+  if (!body.includes(find)) throw new Error('Global report rule not found: ' + find);
+  return body.replace(find, replace);
+};
 const REPORTS_SQL = 'supabase/migrations/20261114000000_add_card_reports.sql', REPORTS_DOWN = 'supabase/rollback/20261114000000_add_card_reports.down.sql';
 const reportsSql = sql(REPORTS_SQL).replace(/\r\n/g, '\n');
 const reportFn = (name, find, replace = '') => {
@@ -192,6 +202,15 @@ const brokenRules = [
   ['cards: anonymous insert granted', CARDS, 'GRANT INSERT ON public.public_cards TO anon; CREATE POLICY anon_insert ON public.public_cards FOR INSERT TO anon WITH CHECK (true)'],
   ['cards: any account can edit a published card', MULTI, 'DROP POLICY public_cards_select_own ON public.public_cards; CREATE POLICY s ON public.public_cards FOR SELECT TO authenticated USING (published OR owner_id=(SELECT auth.uid())); DROP POLICY "Users can update their own cards" ON public.public_cards; CREATE POLICY open_update ON public.public_cards FOR UPDATE TO authenticated USING (true) WITH CHECK (true)'],
   ['cards: any account can delete a published card', MULTI, 'DROP POLICY public_cards_select_own ON public.public_cards; CREATE POLICY s ON public.public_cards FOR SELECT TO authenticated USING (published OR owner_id=(SELECT auth.uid())); DROP POLICY "Users can delete their own cards" ON public.public_cards; CREATE POLICY open_delete ON public.public_cards FOR DELETE TO authenticated USING (true)'],
+  ['global: refused attempts use up the global visitor budget', GLOBAL, withoutRule("WHEN 'global_visitor' THEN a.sharer_user_id IS NULL AND NOT a.refused", "WHEN 'global_visitor' THEN a.sharer_user_id IS NULL")],
+  ['global: no global visitor hourly limit', GLOBAL, withoutRule("WHEN 'global_visitor' THEN a.sharer_user_id IS NULL AND NOT a.refused", "WHEN 'global_visitor' THEN false")],
+  ['global: no global visitor daily limit', GLOBAL, withoutRule("WHEN 'global_visitor_day' THEN a.sharer_user_id IS NULL AND NOT a.refused", "WHEN 'global_visitor_day' THEN false")],
+  ['global: no global member limit', GLOBAL, withoutRule("WHEN 'global_member' THEN a.sharer_user_id IS NOT NULL AND NOT a.refused", "WHEN 'global_member' THEN false")],
+  ['global: refused shares are not flagged', GLOBAL, withoutRule("UPDATE public.share_attempts SET refused = true WHERE id = attempt_id; ")],
+  ['global: no global report hourly limit', GLOBAL, globalReport("IF used > (s->>'global_all_per_hour')::int THEN", 'IF false THEN')],
+  ['global: no global report daily limit', GLOBAL, globalReport("IF used > (s->>'global_all_per_day')::int THEN", 'IF false THEN')],
+  ['global: refused reports use up the global report budget', GLOBAL, globalReport("WHERE NOT a.refused AND a.created_at > now() - interval '1 hour'", "WHERE a.created_at > now() - interval '1 hour'")],
+  ['global: the lock helper is callable by the server role', GLOBAL, 'GRANT EXECUTE ON FUNCTION vale_private.try_lock(text) TO service_role'],
 ];
 for (const [label, file, sabotage] of brokenRules) {
   const broken = await rebuild(repo);
@@ -245,6 +264,8 @@ await ckDb.close();
 // Unlimited Free connections: the rollback restores the 1,000 limit exactly, and re-applying restores the same structure.
 const UC_UP = 'supabase/migrations/20261112000000_unlimited_free_connections.sql', UC_DOWN = 'supabase/rollback/20261112000000_unlimited_free_connections.down.sql';
 const ucDb = await rebuild(repo);
+await ucDb.exec(sql(GL_DOWN));
+await ucDb.exec(sql(GL_CLEAN));   // the newer migration depends on the older ones: take it off first (the comparison is against the state without it)
 const ucBefore = await snapshotOf(ucDb);
 await ucDb.exec(sql(UC_DOWN));
 const ucDown = await snapshotOf(ucDb);
@@ -259,6 +280,8 @@ await ucDb.close();
 
 // Reports: the rollback removes the feature (leaving cards and notifications as they were), and re-applying restores the same structure.
 const crDb = await rebuild(repo);
+await crDb.exec(sql(GL_DOWN));
+await crDb.exec(sql(GL_CLEAN));   // newer migration first (the comparison is against the state without it)
 const crBefore = await snapshotOf(crDb);
 await crDb.exec(sql(NOTICE_DOWN));
 await crDb.exec(sql(LIFT_DOWN));
@@ -280,6 +303,37 @@ const crAgain = await snapshotOf(crDb);
 const noPosition = s => JSON.stringify({ ...s, columns: s.columns.map(({ position, ...c }) => c) });
 report(noPosition(crAgain) === noPosition(crBefore), 'reports: re-applying after rollback restores the same structure');
 await crDb.close();
+
+// Global rate limits: the rollback restores the previous functions and keeps every attempt row and the data columns; the optional
+// cleanup removes only the leftovers; re-applying restores the same structure.
+const glDb = await rebuild(repo);
+const glBefore = await snapshotOf(glDb);
+await glDb.exec(`
+  INSERT INTO auth.users(id, email) VALUES ('00000000-0000-4000-8000-0000000000a1', 'gl-keep@example.invalid');
+  INSERT INTO public.public_cards(id, owner_id, slug, display_name, public_email, public_phone, published) VALUES ('00000000-0000-4000-8000-0000000000c1', '00000000-0000-4000-8000-0000000000a1', 'gl-keep-card', 'Keep', '', '', true);
+  INSERT INTO public.share_attempts(card_id, network_hash, refused) VALUES ('00000000-0000-4000-8000-0000000000c1', 'keep-1', true), ('00000000-0000-4000-8000-0000000000c1', 'keep-2', false);
+  INSERT INTO vale_private.report_attempts(card_id, network_hash, refused) VALUES ('00000000-0000-4000-8000-0000000000c1', repeat('c', 64), true);`);
+await glDb.exec(sql(GL_DOWN));
+const glDown = await snapshotOf(glDb);
+report(!glDown.functions.some(f => f.signature.includes('try_lock')), 'global limits rollback: removes the lock helper');
+report(glDown.columns.some(c => c.table === 'share_attempts' && c.column === 'refused') && glDown.columns.some(c => c.table === 'vale_private.report_attempts' && c.column === 'refused') && glDown.indexes.some(i => i.name === 'share_attempts_created_idx'), 'global limits rollback: keeps the refused columns and the index (they hold data or are inert)');
+report(await count(glDb, 'public.share_attempts') === 2 && await count(glDb, 'vale_private.report_attempts') === 1 && (await glDb.query('SELECT count(*)::int AS n FROM public.share_attempts WHERE refused')).rows[0].n === 1, 'global limits rollback: every existing attempt row and its refused flag survive');
+report(!/try_lock|refused/.test((await glDb.query(`SELECT pg_get_functiondef('public.record_share(text, uuid, boolean, text, jsonb, text[], uuid, uuid, text, text)'::regprocedure) AS d`)).rows[0].d) && !/try_lock|refused/.test((await glDb.query(`SELECT pg_get_functiondef('public.submit_card_report(text, uuid, text, text, text, boolean, text)'::regprocedure) AS d`)).rows[0].d), 'global limits rollback: record_share and submit_card_report are the previous versions again');
+let glOld = false;
+try { await glDb.exec(sql(GLOBAL)); } catch { glOld = true; await glDb.exec('ROLLBACK'); }
+report(glOld, 'global limits rollback: the global limits test notices the limits are gone');
+for (const [name, file] of [['sharing', SHARING], ['contact keys', CONTACT_KEYS], ['reports', REPORTS]]) {
+  try { await glDb.exec(sql(file)); report(true, 'global limits rollback: previous behaviour still passes the ' + name + ' tests'); }
+  catch (error) { report(false, 'global limits rollback: ' + name + ' tests failed after rollback: ' + error.message); }
+}
+await glDb.exec(sql(GL_CLEAN));
+const glClean = await snapshotOf(glDb);
+report(!glClean.columns.some(c => c.column === 'refused') && !glClean.indexes.some(i => i.name === 'share_attempts_created_idx') && await count(glDb, 'public.share_attempts') === 2 && await count(glDb, 'vale_private.report_attempts') === 1
+  && (await glDb.query("SELECT count(*)::int AS n FROM public.share_limits WHERE name LIKE 'global\\_%'")).rows[0].n === 0 && (await glDb.query("SELECT count(*)::int AS n FROM vale_private.report_settings WHERE name LIKE 'global\\_%'")).rows[0].n === 0, 'global limits cleanup: removes only the flags, index and settings; attempt rows stay');
+await glDb.exec('DELETE FROM public.share_attempts; DELETE FROM vale_private.report_attempts; DELETE FROM public.public_cards WHERE id = \'00000000-0000-4000-8000-0000000000c1\'; DELETE FROM auth.users WHERE id = \'00000000-0000-4000-8000-0000000000a1\'');
+await glDb.exec(sql(GL_UP));
+report(noPosition(await snapshotOf(glDb)) === noPosition(glBefore), 'global limits: re-applying after rollback and cleanup restores the same structure');
+await glDb.close();
 
 // Lifting a restriction: the rollback puts back exactly the stage A function, and re-applying restores the same structure.
 const liftDb = await rebuild(repo), stageA = await rebuild(repo);
