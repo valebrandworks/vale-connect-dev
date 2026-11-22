@@ -10,7 +10,7 @@ BEGIN
  END IF;
 END $$;
 DROP FUNCTION IF EXISTS public.admin_auth_overview();
-DROP FUNCTION IF EXISTS public.unconfirmed_purge_candidates(integer, integer);
+DROP FUNCTION IF EXISTS public.unconfirmed_purge_candidates(integer, integer, uuid);
 DROP FUNCTION IF EXISTS public.record_purge_run(text, integer, integer, integer);
 DROP FUNCTION IF EXISTS vale_private.record_auth_stats();
 DROP FUNCTION IF EXISTS vale_private.auth_stats_now();

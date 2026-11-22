@@ -8,7 +8,17 @@
 //    PURGE_APPLY = 'true' AND the request says {"apply": true}. Deleting uses Supabase's supported Admin API (DELETE
 //    /auth/v1/admin/users/<id>), never SQL on the auth tables.
 // 4. Nothing identifying is returned or logged: counts and outcome words only (no ids, no addresses).
-// 5. Stops after 5 failed deletions in a row. Each run is recorded with record_purge_run (counts only).
+// 5. Each account is RE-CHECKED against the database's rules immediately before its own deletion (public.unconfirmed_purge_candidates for
+//    that one id). An account that has confirmed, signed in, been invited, gained a second factor, an administrator role or any data since the
+//    list was made is skipped, never deleted. Only an account the database confirms right now is deleted.
+//    Remaining race (cannot be removed from outside Supabase): between that re-check and the Admin API delete there is a window of a few
+//    hundred milliseconds in which an account could still become protected. Such an account is old (7+ days), never confirmed, and its
+//    confirmation links have long expired, so the person would have to request a new link, open it and be written to in that instant. The
+//    deletion is a hard delete (no soft-delete flag), so the window is documented rather than closed.
+// 6. AUDIT TRAIL IS REQUIRED. Before any deletion batch a 'purge_started' row must be written (record_purge_run); if it cannot be, nothing
+//    is deleted (503 audit_unavailable). After the batch a final row is written; if THAT fails the result is reported as
+//    'applied_audit_failed' (HTTP 500) with the real counts, never as a success. A dry run whose count cannot be recorded is 'audit_failed'.
+// 7. Stops after 5 failed steps in a row (failed re-checks or failed deletions). Nothing identifying is ever returned or logged.
 //
 // Plain JavaScript with no dependencies (Supabase Deno and Node tests). Everything from outside is passed in.
 
@@ -80,7 +90,10 @@ export function createPurgeHandler({ env, fetch: fetchImpl, log }) {
       try {
         const res = await fetchImpl(config.url + '/rest/v1/rpc/' + name, { method: 'POST', signal: timeout(), headers, body: JSON.stringify(params) });
         if (!res.ok) { log({ event: 'database', call: name, status: res.status }); return { ok: false }; }
-        return { ok: true, data: await res.json() };
+        const text = await res.text();
+        let data = null;
+        if (text.trim()) { try { data = JSON.parse(text); } catch { data = undefined; } }   // a function that returns nothing answers with an empty body
+        return { ok: true, data };
       } catch { log({ event: 'database', call: name, status: 'network' }); return { ok: false }; }
     };
 
@@ -89,13 +102,26 @@ export function createPurgeHandler({ env, fetch: fetchImpl, log }) {
     const ids = listed.data.map((/** @type {{ user_id?: unknown }} */ r) => r && r.user_id).filter((/** @type {unknown} */ id) => typeof id === 'string' && UUID.test(id));
     if (ids.length !== listed.data.length) return finish(502, 'database_error');   // never act on an unexpected shape
 
+    const audit = async (/** @type {string} */ kind, /** @type {number} */ candidates, /** @type {number} */ deleted) =>
+      (await rpc('record_purge_run', { p_kind: kind, p_days: days, p_candidates: candidates, p_deleted: deleted })).ok;
+
     if (!apply) {
-      await rpc('record_purge_run', { p_kind: 'purge_dry_run', p_days: days, p_candidates: ids.length, p_deleted: 0 });
-      return finish(200, 'dry_run', { candidates: ids.length, apply_requested: body.apply === true, apply_enabled: config.applyEnabled });
+      if (!await audit('purge_dry_run', ids.length, 0)) { log({ event: 'audit_failure', step: 'dry_run' }); return finish(500, 'audit_failed', { candidates: ids.length, audited: false }); }
+      return finish(200, 'dry_run', { candidates: ids.length, audited: true, apply_requested: body.apply === true, apply_enabled: config.applyEnabled });
     }
 
-    let deleted = 0, failed = 0, streak = 0;
+    // The audit trail must work BEFORE anything is deleted.
+    if (ids.length > 0 && !await audit('purge_started', ids.length, 0)) {
+      log({ event: 'audit_failure', step: 'started' });
+      return finish(503, 'audit_unavailable', { candidates: ids.length, deleted: 0, audited: false });
+    }
+
+    let deleted = 0, failed = 0, skipped = 0, streak = 0;
     for (const id of ids) {
+      // Re-check this one account against the database's rules right now; only a fresh "yes" for exactly this id allows its deletion.
+      const again = await rpc('unconfirmed_purge_candidates', { p_days: days, p_limit: 1, p_user: id });
+      if (again.ok && Array.isArray(again.data) && again.data.length === 0) { skipped++; streak = 0; continue; }
+      if (!again.ok || !Array.isArray(again.data) || again.data.length !== 1 || again.data[0]?.user_id !== id) { failed++; if (++streak >= MAX_CONSECUTIVE_FAILURES) break; continue; }
       let ok = false;
       try {
         const res = await fetchImpl(config.url + '/auth/v1/admin/users/' + id, { method: 'DELETE', signal: timeout(), headers, body: JSON.stringify({ should_soft_delete: false }) });
@@ -103,7 +129,11 @@ export function createPurgeHandler({ env, fetch: fetchImpl, log }) {
       } catch { ok = false; }
       if (ok) { deleted++; streak = 0; } else { failed++; if (++streak >= MAX_CONSECUTIVE_FAILURES) break; }
     }
-    await rpc('record_purge_run', { p_kind: 'purge_applied', p_days: days, p_candidates: ids.length, p_deleted: deleted });
-    return finish(200, failed ? 'applied_with_failures' : 'applied', { candidates: ids.length, deleted, failed });
+    const extra = { candidates: ids.length, deleted, failed, skipped };
+    if (!await audit('purge_applied', ids.length, deleted)) {
+      log({ event: 'audit_failure', step: 'applied', deleted });
+      return finish(500, 'applied_audit_failed', { ...extra, audited: false });   // the deletions are real, the record is missing: say so
+    }
+    return finish(200, failed ? 'applied_with_failures' : 'applied', { ...extra, audited: true });
   };
 }

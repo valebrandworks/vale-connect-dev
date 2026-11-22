@@ -117,10 +117,29 @@ DO $$ DECLARE r text; BEGIN
  END LOOP;
 END $$;
 SET LOCAL ROLE service_role;
+SELECT public.record_purge_run('purge_started', 7, 2, 0);
 SELECT public.record_purge_run('purge_dry_run', 7, 2, 0);
 DO $$ BEGIN BEGIN PERFORM public.record_purge_run('delete_everything', 7, 2, 0); RAISE EXCEPTION 'CHECK: an unknown run kind was accepted';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'CHECK:%' THEN RAISE; END IF; END; END $$;
 RESET ROLE;
+-- The same list can be asked about ONE account (used to re-check right before a deletion): protected accounts and unknown ids give nothing.
+DO $$ DECLARE n text; BEGIN
+ IF (SELECT count(*) FROM public.unconfirmed_purge_candidates(7, 200, current_setting('vale.old2')::uuid)) <> 1 THEN RAISE EXCEPTION 'CHECK: an eligible account was not confirmed eligible'; END IF;
+ IF (SELECT count(*) FROM public.unconfirmed_purge_candidates(7, 200, gen_random_uuid())) <> 0 THEN RAISE EXCEPTION 'CHECK: an unknown id was listed'; END IF;
+ FOREACH n IN ARRAY ARRAY['young','exact','confirmed','signedin','invited','mfa','admin','google','data','anon','aal','plain'] LOOP
+  IF EXISTS (SELECT 1 FROM public.unconfirmed_purge_candidates(7, 200, current_setting('vale.' || n)::uuid)) THEN RAISE EXCEPTION 'CHECK: protected account % confirmed eligible', n; END IF;
+ END LOOP;
+END $$;
+-- An account that becomes protected after the list was made is no longer eligible: it confirms, signs in, or gets a card or a second factor.
+UPDATE auth.users SET email_confirmed_at = now(), confirmed_at = now() WHERE id = current_setting('vale.old2')::uuid;
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.unconfirmed_purge_candidates(7, 200, current_setting('vale.old2')::uuid)) THEN RAISE EXCEPTION 'CHECK: an account that confirmed was still eligible'; END IF; END $$;
+UPDATE auth.users SET email_confirmed_at = NULL, confirmed_at = NULL, last_sign_in_at = now() WHERE id = current_setting('vale.old2')::uuid;
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.unconfirmed_purge_candidates(7, 200, current_setting('vale.old2')::uuid)) THEN RAISE EXCEPTION 'CHECK: an account that signed in was still eligible'; END IF; END $$;
+UPDATE auth.users SET last_sign_in_at = NULL WHERE id = current_setting('vale.old2')::uuid;
+INSERT INTO auth.mfa_factors(user_id) VALUES (current_setting('vale.old2')::uuid);
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.unconfirmed_purge_candidates(7, 200, current_setting('vale.old2')::uuid)) THEN RAISE EXCEPTION 'CHECK: an account that gained a second factor was still eligible'; END IF; END $$;
+DELETE FROM auth.mfa_factors WHERE user_id = current_setting('vale.old2')::uuid;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM public.unconfirmed_purge_candidates(7, 200, current_setting('vale.old2')::uuid)) THEN RAISE EXCEPTION 'CHECK: the account was not eligible again after the changes were undone'; END IF; END $$;
 -- Deleting an account removes nothing the list protects, and the list reacts to data appearing later (found from the foreign keys).
 INSERT INTO public.public_cards(id, owner_id, slug, display_name, public_email, public_phone, published)
  VALUES (gen_random_uuid(), current_setting('vale.old1')::uuid, 'ah-late-' || left(current_setting('vale.old1'), 8), 'Late Data', '', '', false);
@@ -160,7 +179,7 @@ DO $$ DECLARE o jsonb; BEGIN
  o := public.admin_auth_overview();
  IF NOT (o ? 'now' AND o ? 'history' AND o ? 'hook_recent' AND o ? 'purge_runs') THEN RAISE EXCEPTION 'CHECK: overview is missing parts: %', o; END IF;
  IF o::text ILIKE '%@example.invalid%' OR o::text ILIKE '%someone%' THEN RAISE EXCEPTION 'CHECK: the overview shows an address'; END IF;
- IF jsonb_array_length(o->'purge_runs') <> 1 OR (o->'now'->>'new_users')::int < 1 OR (o->'now'->>'confirmation_emails_seen')::int < 1 THEN RAISE EXCEPTION 'CHECK: overview numbers wrong: %', o; END IF;
+ IF jsonb_array_length(o->'purge_runs') <> 2 OR (o->'now'->>'new_users')::int < 1 OR (o->'now'->>'confirmation_emails_seen')::int < 1 THEN RAISE EXCEPTION 'CHECK: overview numbers wrong: %', o; END IF;
 END $$;
 RESET ROLE;
 DO $$ DECLARE r text; BEGIN

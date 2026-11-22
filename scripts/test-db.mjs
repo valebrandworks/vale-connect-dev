@@ -215,10 +215,11 @@ const brokenRules = [
   ['auth: block list ignored', AUTH, 'CREATE OR REPLACE FUNCTION vale_private.email_domain_blocked(p_domain text) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$'],
   ['auth: allow list ignored', AUTH, 'CREATE OR REPLACE FUNCTION vale_private.email_domain_blocked(p_domain text) RETURNS boolean LANGUAGE sql AS $$ SELECT EXISTS (SELECT 1 FROM vale_private.blocked_email_domains b WHERE b.domain = lower(p_domain)) $$'],
   ['auth: server role can call the hook', AUTH, 'GRANT EXECUTE ON FUNCTION vale_private.before_user_created(jsonb) TO service_role'],
-  ['auth: anyone can list purge candidates', AUTH, 'GRANT EXECUTE ON FUNCTION public.unconfirmed_purge_candidates(integer, integer) TO authenticated'],
+  ['auth: anyone can list purge candidates', AUTH, 'GRANT EXECUTE ON FUNCTION public.unconfirmed_purge_candidates(integer, integer, uuid) TO authenticated'],
   ['auth: block list readable by the server role', AUTH, 'GRANT SELECT ON vale_private.blocked_email_domains TO service_role'],
   ['auth: overview open to every signed-in account', AUTH, "CREATE OR REPLACE FUNCTION vale_private.require_admin() RETURNS uuid LANGUAGE sql AS $$ SELECT auth.uid() $$"],
-  ['auth: purge lists confirmed accounts', AUTH, "CREATE OR REPLACE FUNCTION public.unconfirmed_purge_candidates(p_days integer DEFAULT 7, p_limit integer DEFAULT 200) RETURNS TABLE (user_id uuid, created_at timestamptz) LANGUAGE sql SECURITY DEFINER SET search_path TO '' AS $$ SELECT u.id, u.created_at FROM auth.users u WHERE u.created_at < now() - make_interval(days => p_days) LIMIT p_limit $$"],
+  ['auth: purge lists confirmed accounts', AUTH, "CREATE OR REPLACE FUNCTION public.unconfirmed_purge_candidates(p_days integer DEFAULT 7, p_limit integer DEFAULT 200, p_user uuid DEFAULT NULL) RETURNS TABLE (user_id uuid, created_at timestamptz) LANGUAGE sql SECURITY DEFINER SET search_path TO '' AS $$ SELECT u.id, u.created_at FROM auth.users u WHERE u.created_at < now() - make_interval(days => p_days) LIMIT p_limit $$"],
+  ['auth: the per-account check ignores the account', AUTH, "CREATE OR REPLACE FUNCTION public.unconfirmed_purge_candidates(p_days integer DEFAULT 7, p_limit integer DEFAULT 200, p_user uuid DEFAULT NULL) RETURNS TABLE (user_id uuid, created_at timestamptz) LANGUAGE sql SECURITY DEFINER SET search_path TO '' AS $$ SELECT u.id, u.created_at FROM auth.users u WHERE u.email_confirmed_at IS NULL AND u.last_sign_in_at IS NULL AND u.created_at < now() - make_interval(days => p_days) LIMIT p_limit $$"],
 ];
 for (const [label, file, sabotage] of brokenRules) {
   const broken = await rebuild(repo);

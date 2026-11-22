@@ -6,7 +6,10 @@
 --    sign-ups. An internal failure never blocks anyone (fails open) but is recorded in vale_private.auth_hook_log so it is detectable.
 -- 2. Never-confirmed accounts: public.unconfirmed_purge_candidates() lists self-sign-ups that never confirmed and are older than N days
 --    (default 7), excluding anyone confirmed, signed in, invited, with a second sign-in factor or admin role, or with any data of ours.
---    It only LISTS. Deleting uses Supabase's Admin API from a separate server function (never direct SQL on auth.users here).
+--    With the optional third argument it answers the same question for ONE account, so the server function can re-check each account
+--    immediately before deleting it. It only LISTS. Deleting uses Supabase's Admin API from a separate server function (never direct SQL
+--    on auth.users here). Every run leaves an audit row (vale_private.auth_maintenance_log): 'purge_started' before any deletion batch,
+--    then 'purge_applied' or 'purge_dry_run' with the counts.
 -- 3. Lightweight statistics: one counts-only row per day (vale_private.auth_daily_stats, no addresses) and an admin-only overview
 --    (public.admin_auth_overview(), two-step sign-in enforced like every admin function).
 -- No existing table is changed. Existing accounts, the admin role and the two-step rule are not touched.
@@ -31,7 +34,7 @@ CREATE INDEX auth_hook_log_created_idx ON vale_private.auth_hook_log (created_at
 CREATE TABLE vale_private.auth_maintenance_log (
  id bigserial PRIMARY KEY,
  ran_at timestamptz NOT NULL DEFAULT now(),
- kind text NOT NULL CHECK (kind IN ('purge_dry_run', 'purge_applied')),
+ kind text NOT NULL CHECK (kind IN ('purge_started', 'purge_dry_run', 'purge_applied')),
  days integer NOT NULL, candidates integer NOT NULL, deleted integer NOT NULL DEFAULT 0);
 CREATE TABLE vale_private.auth_daily_stats (
  day date PRIMARY KEY,
@@ -99,7 +102,7 @@ GRANT EXECUTE ON FUNCTION vale_private.before_user_created(jsonb) TO supabase_au
 -- Protected: confirmed or ever signed in, invited, anonymous or single-sign-on, any sign-in method other than email, any second factor,
 -- any admin role, and anyone with a row in any of our tables that refers to the account (found from the foreign keys, so tables
 -- added later are covered automatically).
-CREATE FUNCTION public.unconfirmed_purge_candidates(p_days integer DEFAULT 7, p_limit integer DEFAULT 200)
+CREATE FUNCTION public.unconfirmed_purge_candidates(p_days integer DEFAULT 7, p_limit integer DEFAULT 200, p_user uuid DEFAULT NULL)
  RETURNS TABLE (user_id uuid, created_at timestamptz)
  LANGUAGE plpgsql SECURITY DEFINER SET search_path TO '' AS $$
 DECLARE refs text;
@@ -118,18 +121,19 @@ BEGIN
      AND NOT EXISTS (SELECT 1 FROM auth.identities i WHERE i.user_id = u.id AND i.provider <> ''email'')
      AND NOT EXISTS (SELECT 1 FROM auth.mfa_factors f WHERE f.user_id = u.id)
      AND NOT EXISTS (SELECT 1 FROM vale_private.platform_admins pa WHERE pa.user_id = u.id)' || refs || '
-   ORDER BY u.created_at LIMIT $2' USING p_days, p_limit;
+     AND ($3::uuid IS NULL OR u.id = $3)
+   ORDER BY u.created_at LIMIT $2' USING p_days, p_limit, p_user;
 END $$;
--- Records one run (dry run or applied) so history is visible in the admin overview. Counts only.
+-- Records one run step (started, dry run or applied) so history is visible in the admin overview. Counts only.
 CREATE FUNCTION public.record_purge_run(p_kind text, p_days integer, p_candidates integer, p_deleted integer)
  RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO '' AS $$
 BEGIN
- IF p_kind NOT IN ('purge_dry_run', 'purge_applied') THEN RAISE EXCEPTION 'Invalid run.'; END IF;
+ IF p_kind NOT IN ('purge_started', 'purge_dry_run', 'purge_applied') THEN RAISE EXCEPTION 'Invalid run.'; END IF;
  INSERT INTO vale_private.auth_maintenance_log(kind, days, candidates, deleted) VALUES (p_kind, p_days, greatest(p_candidates, 0), greatest(p_deleted, 0));
  DELETE FROM vale_private.auth_maintenance_log WHERE ran_at < now() - interval '365 days';
 END $$;
-REVOKE ALL ON FUNCTION public.unconfirmed_purge_candidates(integer, integer), public.record_purge_run(text, integer, integer, integer) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.unconfirmed_purge_candidates(integer, integer), public.record_purge_run(text, integer, integer, integer) TO service_role;
+REVOKE ALL ON FUNCTION public.unconfirmed_purge_candidates(integer, integer, uuid), public.record_purge_run(text, integer, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.unconfirmed_purge_candidates(integer, integer, uuid), public.record_purge_run(text, integer, integer, integer) TO service_role;
 
 -- 3. Statistics: live numbers for today, one stored row per day.
 CREATE FUNCTION vale_private.auth_stats_now() RETURNS jsonb
