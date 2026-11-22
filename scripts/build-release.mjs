@@ -44,6 +44,19 @@ export const HEADERS = [
   '',
 ].join('\n');
 
+// Cloudflare Pages treats a site with no top-level 404.html as a single-page app and answers every unknown path with the home
+// page and HTTP 200. This page makes unknown paths a real 404. Static: no script, no styles, no links to other files (it is
+// served at whatever path was asked for), its own strict policy, and kept out of search results.
+export const NOT_FOUND_PAGE = [
+  '<!doctype html>',
+  '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
+  '<meta name="robots" content="noindex,nofollow">',
+  `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'">`,
+  '<title>Page not found</title></head>',
+  '<body><h1>Page not found</h1><p>This page does not exist.</p><p><a href="/">VALE Connect home</a></p></body></html>',
+  '',
+].join('\n');
+
 // Exact replacements, each of which must match (a missed one fails the build instead of shipping development text).
 const REPLACE = {
   'index.html': [['<title>VALE Connect — Development</title>', '<title>VALE Connect</title>'], ['content="VALE Dev"', 'content="VALE Connect"'],
@@ -98,6 +111,7 @@ export function bundle() {
   out.set('CNAME', Buffer.from(DOMAIN + '\n'));
   out.set('robots.txt', Buffer.from('User-agent: *\nDisallow: /\n'));
   out.set('_headers', Buffer.from(check('_headers', HEADERS), 'utf8'));
+  out.set('404.html', Buffer.from(check('404.html', NOT_FOUND_PAGE), 'utf8'));
   const cfg = out.get('config.js').toString('utf8');
   for (const need of [prod.supabaseUrl, prod.publishableKey, prod.turnstileSiteKey, DOMAIN]) if (!cfg.includes(need)) throw new Error('config.js lacks a production value');
   return out;
