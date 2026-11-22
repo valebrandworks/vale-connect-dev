@@ -57,7 +57,7 @@ assert.doesNotMatch(ui+coreSrc+page,/innerHTML|outerHTML|insertAdjacentHTML|docu
 assert.doesNotMatch(ui+coreSrc,/localStorage|sessionStorage|indexedDB|caches\./,'report data is never stored in the browser');
 assert.doesNotMatch(ui,/\.from\(|\.storage\b|functions\.invoke/,'no tables, files or server functions: admin functions only');
 const rpcs=[...ui.matchAll(/\.rpc\(('[a-z_]+'|fn)/g)].map(m=>m[1]);
-assert.deepEqual([...new Set(rpcs)].sort(),["'admin_get_report'","'admin_list_reports'","'admin_report_history'",'fn'].sort(),'only admin functions are called');
+assert.deepEqual([...new Set(rpcs)].sort(),["'admin_auth_overview'","'admin_get_report'","'admin_list_reports'","'admin_report_history'",'fn'].sort(),'only admin functions are called');
 assert.ok(ui.includes("rpc('admin_get_report',{p_report_id:id})"),'one report is opened by its id');assert.doesNotMatch(ui,/p_limit:200/,'never by scanning the list');
 assert.doesNotMatch(ui+coreSrc,/network_hash|card_owner_id|owner_id|dedupe_key|submission_id/,'the page never asks for or shows who reported, or who owns the card');
 assert.doesNotMatch(ui+coreSrc+page,/sb_secret|service_role|TURNSTILE_SECRET|SHARE_HASH_SALT|re_[A-Za-z0-9]{6}/,'no secrets');
@@ -116,9 +116,10 @@ function scenario(sources,setup={}){
    if(sim.aal!=='aal2')return err('42501','Moderation needs two-step sign-in. Sign in with your authenticator code and try again.','mfa_required');
    if(sim.fail)return err('P0001',sim.fail);
    const r=reports.find(x=>x.id===args.p_report_id)||reports.find(x=>x.card_id===args.p_card_id);
-   if(fn!=='admin_list_reports'&&fn!=='admin_report_history'&&fn!=='admin_get_report'&&!r)return err('P0001','Report not found.');
+   if(fn!=='admin_list_reports'&&fn!=='admin_report_history'&&fn!=='admin_get_report'&&fn!=='admin_auth_overview'&&!r)return err('P0001','Report not found.');
    const note=String(args.p_note??'').trim(),closing=['dismissed','action_taken'].includes(args.p_status);
    switch(fn){
+    case 'admin_auth_overview':return {data:sim.overview||{now:{new_users:2,confirmed_users:5,unconfirmed_pending:1,confirmation_emails_seen:3,recovery_emails_seen:1,hook_blocked:1,hook_errors:0,purge_candidates:0,share_accepted:4,share_refused:1,report_accepted:1,report_refused:0},history:[{day:'2026-11-22',new_users:2,confirmation_emails_seen:3,recovery_emails_seen:1,hook_blocked:1}],hook_recent:[{at:'2026-11-22T10:00:00Z',kind:'blocked',domain:'mailinator.com'}],purge_runs:[{ran_at:'2026-11-22T04:00:00Z',kind:'purge_dry_run',days:7,candidates:0,deleted:0}]},error:null};
     case 'admin_get_report':return {data:reports.filter(x=>x.id===args.p_report_id).map(x=>({...x})),error:null};
     case 'admin_list_reports':{args={...args,p_limit:Math.min(Math.max(args.p_limit,1),200)};const rows=reports.filter(x=>!args.p_status||x.status===args.p_status).sort((a,b)=>(['new','reviewing'].includes(b.status)-['new','reviewing'].includes(a.status))||a.created_at.localeCompare(b.created_at));return {data:rows.slice(args.p_offset,args.p_offset+args.p_limit).map(x=>({...x})),error:null}}
     case 'admin_report_history':return {data:(history[args.p_report_id]||[]).map(x=>({...x})),error:null};
@@ -256,6 +257,15 @@ async function behaviour(sources){
  timer.fn();await t.settle();
  assert.deepEqual(t.rpcCalls('signOut').pop(),['signOut',{scope:'local'}]);assert.equal(t.heading(),'Sign in first');assert.match(t.text(),/15 minutes without activity/);
  assert.ok(['pointerdown','keydown'].every(k=>!t.listeners[k]?.size),'the timer stops once signed out');
+ // Sign-up overview: counts only, thresholds explained in plain words, errors handled, no addresses.
+ t=scenario(sources,{aal:'aal2'});await t.settle();await t.click('Sign-up overview');
+ assert.equal(t.heading(),'Sign-up overview');assert.match(t.text(),/New accounts today: 2/);assert.match(t.text(),/Refused a new account from mailinator\.com/);assert.match(t.text(),/Dry run: 0 would be deleted/);
+ assert.doesNotMatch(t.text(),/@|example\.invalid/,'no email addresses on the overview');assert.doesNotMatch(t.text(),/free email plan allows/,'no warning at low volume');
+ assert.deepEqual(t.rpcCalls('admin_auth_overview').length,1);await t.click('Back to reports');assert.equal(t.heading(),'Report review');
+ t=scenario(sources,{aal:'aal2'});t.sim.overview={now:{confirmation_emails_seen:70,recovery_emails_seen:12,hook_errors:2,purge_candidates:3},history:[],hook_recent:[],purge_runs:[]};await t.settle();await t.click('Sign-up overview');
+ assert.match(t.text(),/About 82 sign-up and reset emails/);assert.match(t.text(),/used up/);assert.match(t.text(),/internal error/);assert.match(t.text(),/3 sign-up\(s\) were never confirmed/);
+ t=scenario(sources,{aal:'aal2'});await t.settle();t.sim.fail='Nope.';await t.click('Sign-up overview');assert.match(t.text(),/Nope\./,'a database message is shown plainly');
+ t=scenario(sources,{aal:'aal2'});t.sim.overview='garbage';await t.settle();await t.click('Sign-up overview');assert.equal(t.heading(),'Sign-up overview','odd data does not break the page');
  // The sign-out button.
  t=scenario(sources,{aal:'aal2'});await t.settle();await t.click('Sign out');assert.deepEqual(t.rpcCalls('signOut').pop(),['signOut',{scope:'local'}]);assert.equal(t.heading(),'Sign in first');
 }
@@ -276,6 +286,8 @@ const SABOTAGE=[
  ['a report found by scanning the first 200','ui',"state.client.rpc('admin_get_report',{p_report_id:id})","state.client.rpc('admin_list_reports',{p_status:null,p_limit:200,p_offset:0}).then(r=>r.error?r:{data:(r.data||[]).filter(x=>x.id===id)})"],
  ['lifting promises the card is public again','core',"It stays private until its owner chooses to publish it again.","It becomes public again at once."],
  ['signing out of every device','ui',"signOut({scope:'local'})","signOut({scope:'global'})"],
+ ['no warning when the email allowance is nearly used','core',"if(sent>=EMAIL_WARN_AT)","if(false)"],
+ ['an internal filter error not shown','core',"if(num(n.hook_errors)>0)","if(false)"],
 ];
 (async()=>{
  const sources={core:coreSrc,ui};

@@ -36,7 +36,7 @@ assert.doesNotMatch(auth,/innerHTML|outerHTML|insertAdjacentHTML/,'no HTML injec
 assert.match(html,/<script src="auth-core\.js\?v=\d+"><\/script><script src="cloud-auth\.js\?v=\d+"><\/script>/,'rules load before the form');
 assert.doesNotMatch(html.slice(html.indexOf('id="cloud-auth"'),html.indexOf('id="cloud-new-password"')),/minlength="[0-9]"/,'the sign-in box no longer refuses older short passwords');
 assert.match(html,/id="cloud-new-password-value" type="password" autocomplete="new-password" minlength="10"/);
-for(const id of ['cloud-email','cloud-password','cloud-password-confirm','cloud-agree','cloud-new-password-value','cloud-new-password-confirm'])assert.match(html,new RegExp('<label[^>]*for="'+id+'"'),'labelled: '+id);
+for(const id of ['cloud-email','cloud-password','cloud-password-confirm','cloud-agree','cloud-current-password','cloud-new-password-value','cloud-new-password-confirm'])assert.match(html,new RegExp('<label[^>]*for="'+id+'"'),'labelled: '+id);
 assert.match(html,/id="cloud-auth-status" role="status" aria-live="polite"/);assert.match(html,/id="cloud-password-toggle" aria-pressed="false" aria-controls="cloud-password"/);
 
 // ---------- Behaviour, with a simulated page ----------
@@ -46,14 +46,14 @@ function page({turnstile=true,host='dev.valebrandworks.com',accountOpen=false}={
  const els=new Map(),get=id=>{if(!els.has(id))els.set(id,new El(id,'input'));return els.get(id)};
  for(const id of ['cloud-password','cloud-password-confirm'])get(id).type='password';
  get('tab-account').hidden=!accountOpen;
- for(const id of ['cloud-signup','cloud-reset','cloud-resend','cloud-show-signin','cloud-password-hint','cloud-confirm-field','cloud-agree-field','cloud-new-password','cloud-invite-note'])get(id).hidden=true;
+ for(const id of ['cloud-signup','cloud-reset','cloud-resend','cloud-show-signin','cloud-password-hint','cloud-confirm-field','cloud-agree-field','cloud-new-password','cloud-invite-note','cloud-current-field'])get(id).hidden=true;
  const calls=[],answers={},events={},ts={renders:[],resets:0,render(el,o){this.renders.push({el:el.id,...o});return 'w'+this.renders.length},reset(){this.resets++}};
  const answer=name=>answers[name]?.shift()||{data:{},error:null};
  let authFn;
  const client={auth:{getUser:async()=>({data:{user:null}}),onAuthStateChange:f=>authFn=f,
   signInWithPassword:async c=>{calls.push(['signIn',c]);return answer('signIn')},signUp:async c=>{calls.push(['signUp',c]);return answer('signUp')},
   resetPasswordForEmail:async(e,o)=>{calls.push(['reset',{email:e,...o}]);return answer('reset')},resend:async c=>{calls.push(['resend',c]);return answer('resend')},
-  updateUser:async u=>{calls.push(['update',u]);return answer('update')},signOut:async()=>({error:null})},rpc:async(n,a)=>{calls.push([n,a]);return {error:null}}};
+  updateUser:async u=>{calls.push(['update',u]);return answer('update')},signOut:async o=>{calls.push(['signOut',o]);return answer('signOut')}},rpc:async(n,a)=>{calls.push([n,a]);return {error:null}}};
  const window={supabase:{createClient:()=>client},addEventListener:(n,f)=>events[n]=f,dispatchEvent(){},ValeApp:{tab:t=>calls.push(['tab',t])},ValeCards:{removeAllImages:async()=>{}}};
  if(turnstile)window.turnstile=ts;
  const document={getElementById:get,createElement:t=>new El('',t),createTextNode:t=>({textContent:t}),head:new El('head'),querySelector:()=>null,addEventListener(){}};
@@ -142,8 +142,49 @@ const shown=(p,ids)=>Object.fromEntries(ids.map(id=>[id,!p.get(id).hidden]));
  same(p.calls[0],['reset',{email:'someone@example.invalid',redirectTo:'https://dev.valebrandworks.com/',captchaToken:'tok-r'}]);assert.equal(p.status(),core.RESET_SENT);
  p.ts.renders[0].callback('tok-r2');p.answers.reset=[{error:{message:'captcha verification process failed'}}];await p.submit();assert.match(p.status(),/security check/,'a failed check is worth saying');
  p.get('cloud-show-signin').handlers.click();assert.equal(p.get('account-auth-title').textContent,'Sign in');
- // A new password follows the server's minimum.
- p.get('cloud-new-password-value').value='123456789';p.get('cloud-new-password-confirm').value='123456789';await p.get('cloud-new-password').handlers.submit({preventDefault(){}});assert.match(p.status(),/at least 10/);assert.ok(!p.calls.some(c=>c[0]==='update'));
+ // A new password follows the server's minimum. (Development asks for the current password first: see below.)
+ p.get('cloud-current-password').value='old password 123';p.get('cloud-new-password-value').value='123456789';p.get('cloud-new-password-confirm').value='123456789';await p.get('cloud-new-password').handlers.submit({preventDefault(){}});assert.match(p.status(),/at least 10/);assert.ok(!p.calls.some(c=>c[0]==='update'));
+
+ // Changing a password (R11). Development asks for the current password (config.js requireCurrentPassword); production does not yet.
+ {
+  const changeTo=async(q,{current,next='a brand new passphrase',confirm=next})=>{if(current!==undefined)q.get('cloud-current-password').value=current;q.get('cloud-new-password-value').value=next;q.get('cloud-new-password-confirm').value=confirm;await q.get('cloud-new-password').handlers.submit({preventDefault(){}});await settle()};
+  const q=page();await settle();q.auth('SIGNED_IN',{id:'u1',email:'a@example.invalid'});await settle();
+  q.get('cloud-change-password').handlers.click();assert.equal(q.get('cloud-current-field').hidden,false,'development: the form asks for the current password');
+  await changeTo(q,{current:''});assert.match(q.status(),/Enter your current password/);assert.ok(!q.calls.some(c=>c[0]==='update'),'nothing sent without it');
+  await changeTo(q,{current:'same passphrase 1',next:'same passphrase 1'});assert.match(q.status(),/different password from your current/);assert.ok(!q.calls.some(c=>c[0]==='update'),'the same password is refused before sending');
+  await changeTo(q,{current:'x'.repeat(5),next:'y'.repeat(73)});assert.match(q.status(),/too long/,'longer than the 72 bytes bcrypt uses');assert.ok(!q.calls.some(c=>c[0]==='update'));
+  q.answers.update=[{error:{message:'Invalid login credentials',code:'invalid_credentials'}}];await changeTo(q,{current:'wrong one 123',next:'a brand new passphrase'});
+  assert.match(q.status(),/current password wasn’t accepted/);assert.doesNotMatch(q.status(),/Invalid login/,'no raw server wording');
+  same(q.calls.filter(c=>c[0]==='update').at(-1),['update',{password:'a brand new passphrase',current_password:'wrong one 123'}],'the current password is sent with the new one');
+  assert.ok(!q.calls.some(c=>c[0]==='signOut'),'a failed change signs nobody out');
+  q.answers.update=[{error:{message:'Reauthentication needed',code:'reauthentication_needed'}}];await changeTo(q,{current:'right one 1234'});assert.match(q.status(),/sign out and sign in again/);
+  q.answers.update=[{error:{message:'New password should be different from the old password.',code:'same_password'}}];await changeTo(q,{current:'right one 1234'});assert.match(q.status(),/password you already use/);
+  q.answers.update=[{error:{message:'Password should contain at least one character',code:'weak_password',reasons:['pwned']}}];await changeTo(q,{current:'right one 1234'});assert.match(q.status(),/data breach/);
+  q.answers.update=[{error:{message:'Password should be at least 10 characters.',code:'weak_password',reasons:['length']}}];await changeTo(q,{current:'right one 1234'});assert.match(q.status(),/at least 10 characters/,'a too-short password is not called breached');
+  q.answers.update=[{}];q.answers.signOut=[{error:null}];await changeTo(q,{current:'right one 1234'});
+  assert.match(q.status(),/Password changed\. Other devices were signed out/);same(q.calls.filter(c=>c[0]==='signOut').at(-1),['signOut',{scope:'others'}],'other sessions are ended, this one kept');
+  assert.equal(q.get('cloud-current-password').value+q.get('cloud-new-password-value').value,'','password boxes are emptied');
+  q.answers.update=[{}];q.answers.signOut=[{error:{message:'x'}}];await changeTo(q,{current:'right one 1234'});assert.match(q.status(),/Password changed\. If you use other devices/,'a failed sign-out of other devices is said plainly');
+  // The reset-link flow: no current password to ask for (the person just proved they own the address).
+  const r=page();await settle();r.auth('PASSWORD_RECOVERY',{id:'u1',email:'a@example.invalid'});await settle();
+  assert.equal(r.get('cloud-current-field').hidden,true,'reset flow: no current-password field');
+  await changeTo(r,{next:'a recovery passphrase'});same(r.calls.filter(c=>c[0]==='update').at(-1),['update',{password:'a recovery passphrase'}],'reset flow: only the new password is sent');
+  // Production: not asked until the server setting is on and verified.
+  const pr=page({host:'connect.valebrandworks.com'});await settle();pr.auth('SIGNED_IN',{id:'u1',email:'a@example.invalid'});await settle();pr.get('cloud-change-password').handlers.click();
+  assert.equal(pr.get('cloud-current-field').hidden,true,'production: no current-password field yet');
+  await changeTo(pr,{next:'a production passphrase'});same(pr.calls.filter(c=>c[0]==='update').at(-1),['update',{password:'a production passphrase'}]);
+  // Messages (R11): sign-up trouble is told plainly; a blocked provider, email trouble and weak/short are told apart.
+  const mm=(e,c)=>core.message(e,c);
+  assert.match(mm({message:'Error sending confirmation email',code:'unexpected_failure'},'signup'),/couldn’t send the email/);
+  assert.match(mm({message:"That email provider isn't supported for new accounts. Please use a different email address."},'signup'),/provider isn’t supported/);
+  assert.equal(mm({message:'Error sending recovery email'},'reset'),'Something went wrong. Please try again.','reset never reveals an email problem that only exists for real accounts');
+  assert.match(core.RESET_SENT,/try again later/);
+  assert.match(mm({message:'Password should be at least 10 characters',code:'weak_password'},'signup'),/at least 10/);
+  assert.match(mm({message:'Password is known to be weak and easy to guess, please choose a different one.',code:'weak_password'},'signup'),/data breach/);
+  assert.match(mm({message:'weak',code:'weak_password'},'signup'),/stronger password/);
+  assert.equal(core.checkNewPassword('é'.repeat(37),'é'.repeat(37)).includes('too long'),true,'the limit counts bytes, not letters');
+  assert.equal(core.checkNewPassword('p'.repeat(72),'p'.repeat(72)),'','72 bytes is allowed');
+ }
  // Deleting an account: its password re-check carries its own security check.
  p=page();await settle();p.auth('SIGNED_IN',{id:'u1',email:'Owner@example.invalid'});await settle();
  p.get('cloud-delete-section').open=true;p.get('cloud-delete-section').handlers.toggle();await settle();

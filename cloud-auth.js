@@ -11,6 +11,10 @@ const ENV=window.ValeConfig?.forHost(location.hostname)||null;
 // Where sign-ups are closed (config.js), the page offers no "Create an account" form and says accounts are by invitation.
 // Cosmetic only, NOT a security control: the server (Supabase Auth, sign-ups disabled) refuses sign-ups regardless.
 const signupOpen=ENV?.signupOpen!==false;
+// Whether changing a password asks for the current one (config.js; must match the server's "Require current password" setting).
+// Not asked in the password-reset flow, where the person has just proved they own the email address instead.
+const currentPasswordRequired=ENV?.requireCurrentPassword===true;
+let recovering=false;
 const TURNSTILE_SRC='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 let client=null,user=null,generation=0,mode='signin',busy=false;
 function accountRequest(){return user?{id:user.id,generation}:null}
@@ -81,7 +85,7 @@ async function init(){
   if(!ENV){msg('cloud-auth-status','This isn’t a VALE Connect address, so sign-in is unavailable here.');return}
   client=window.supabase.createClient(ENV.supabaseUrl,ENV.publishableKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
   let authEventVersion=0;
-  client.auth.onAuthStateChange((_event,session)=>{authEventVersion++;setSignedIn(session?.user||null);if(_event==='PASSWORD_RECOVERY')showPasswordForm('Choose a new password to finish signing in.')});
+  client.auth.onAuthStateChange((_event,session)=>{authEventVersion++;setSignedIn(session?.user||null);if(_event==='PASSWORD_RECOVERY'){recovering=true;showPasswordForm('Choose a new password to finish signing in.')}});
   const initAuthVersion=authEventVersion;const {data,error}=await client.auth.getUser();
   if(authEventVersion===initAuthVersion){if(error&&!/session missing|auth session missing/i.test(error.message))msg('cloud-auth-status',core.message(error));setSignedIn(data?.user||null)}
   // Opened straight onto the Account tab (a Sign in link, or a password manager filling the form): load the check now.
@@ -161,9 +165,20 @@ $('cloud-password-toggle')?.addEventListener('click',()=>{
 });
 window.addEventListener('vale-tab-shown',event=>{if(event.detail?.tab==='account'&&!user)authCheck.mount()});
 
-function showPasswordForm(text){$('cloud-new-password').hidden=false;msg('cloud-auth-status',text);document.querySelector?.('[data-tab="account"]')?.click();$('cloud-new-password-value').focus?.()}
-$('cloud-change-password').addEventListener('click',()=>showPasswordForm('Enter your new password.'));
-$('cloud-new-password').addEventListener('submit',async e=>{e.preventDefault();if(!client)return;const password=$('cloud-new-password-value').value;const bad=core.checkNewPassword(password,$('cloud-new-password-confirm').value);if(bad){msg('cloud-auth-status',bad);return}const {error}=await client.auth.updateUser({password});$('cloud-new-password-value').value='';$('cloud-new-password-confirm').value='';if(error){msg('cloud-auth-status','Password not changed. '+core.message(error,'password'));return}$('cloud-new-password').hidden=true;msg('cloud-auth-status','Password changed.')});
+function showPasswordForm(text){const ask=currentPasswordRequired&&!recovering;show('cloud-current-field',ask);if($('cloud-current-password'))$('cloud-current-password').value='';$('cloud-new-password').hidden=false;msg('cloud-auth-status',text);document.querySelector?.('[data-tab="account"]')?.click();$('cloud-new-password-value').focus?.()}
+$('cloud-change-password').addEventListener('click',()=>{recovering=false;showPasswordForm('Enter your new password.')});
+$('cloud-new-password').addEventListener('submit',async e=>{
+ e.preventDefault();if(!client)return;
+ const password=$('cloud-new-password-value').value,ask=currentPasswordRequired&&!recovering,current=ask?($('cloud-current-password')?.value??''):'';
+ const bad=core.checkNewPassword(password,$('cloud-new-password-confirm').value,{current,requireCurrent:ask});if(bad){msg('cloud-auth-status',bad);return}
+ const {error}=await client.auth.updateUser(ask?{password,current_password:current}:{password});
+ for(const id of ['cloud-new-password-value','cloud-new-password-confirm','cloud-current-password'])if($(id))$(id).value='';
+ if(error){msg('cloud-auth-status','Password not changed. '+core.message(error,'password'));return}
+ $('cloud-new-password').hidden=true;recovering=false;
+ // Other devices and browsers are signed out, so a changed password also ends any session someone else may be holding.
+ let others=true;try{const r=await client.auth.signOut({scope:'others'});if(r?.error)others=false}catch{others=false}
+ msg('cloud-auth-status',others?'Password changed. Other devices were signed out.':'Password changed. If you use other devices, sign in again there.');
+});
 
 $('cloud-delete-section')?.addEventListener?.('toggle',()=>{if($('cloud-delete-section').open)deleteCheck.mount()});
 $('cloud-delete-account').addEventListener('click',async()=>{
@@ -182,9 +197,9 @@ $('cloud-delete-account').addEventListener('click',async()=>{
  msg('cloud-delete-status','Removing your card images…');
  try{await window.ValeCards?.removeAllImages?.()}catch(error){msg('cloud-delete-status',(error.message||'Your card images couldn’t be removed.')+' Your account was not deleted.');return}
  const {error}=await client.rpc('delete_my_account',{confirm_email:email});
- if(error){msg('cloud-delete-status',error.message);return}
+ if(error){msg('cloud-delete-status',/^P0001$/.test(String(error.code||''))&&error.message?error.message:'Your account couldn’t be deleted. Nothing was deleted. Please try again.');return}
  await client.auth.signOut({scope:'local'});$('cloud-delete-email').value='';msg('cloud-delete-status','');msg('cloud-auth-status','Your account was deleted. Anything saved only in this browser is still here.');
 });
-$('cloud-signout').addEventListener('click',async()=>{if(!client||!user)return;const request=accountRequest();const {error}=await client.auth.signOut();if(user&&!current(request))return;msg('cloud-auth-status',error?error.message:'Signed out.')});
+$('cloud-signout').addEventListener('click',async()=>{if(!client||!user)return;const request=accountRequest();const {error}=await client.auth.signOut();if(user&&!current(request))return;msg('cloud-auth-status',error?'Couldn’t sign out. Please try again.':'Signed out.')});
 drawAgreement();setMode('signin',{mount:false});setSignedIn(null);void init();
 })();

@@ -142,7 +142,26 @@
   }
   if(!state.reports.length)rows.append(el('p',{class:'muted center',text:'No reports here.'}));
   const more=state.more?el('div',{class:'actions'},el('button',{class:'btn ghost block',type:'button',text:'Show more',onclick:()=>void list(false)})):null;
-  show(title('Report review'),chips,rows,more,signOutRow());
+  const tools=el('div',{class:'actions'},el('button',{class:'btn ghost',type:'button',text:'Sign-up overview',onclick:()=>void overview()}));
+  show(title('Report review'),chips,rows,more,tools,signOutRow());
+ }
+
+ // ---------- Sign-up overview (counts only) ----------
+ async function overview(){
+  const e=state.epoch;
+  const {data,error}=await state.client.rpc('admin_auth_overview',{});
+  if(e!==state.epoch)return;
+  if(error)return fail(error);
+  const v=core.overview(data);
+  const lines=(items,empty)=>items.length?el('ul',{class:'admin-lines'},...items.map(i=>el('li',{},i.when||i.day?el('b',{text:(i.when||i.day)+' '}):null,i.text))):el('p',{class:'muted',text:empty});
+  show(title('Sign-up overview'),
+   el('p',{class:'muted',text:'Numbers only: no email addresses are shown. “Emails seen” counts accounts whose latest email was sent today, so the real number can be higher.'}),
+   ...v.notes.map(n=>el('p',{class:n.level==='warn'?'note error':'note',text:n.text})),
+   el('div',{class:'admin-rows'},...v.rows.map(([label,value])=>el('p',{},el('span',{text:label+': '}),el('b',{text:String(value)})))),
+   el('h2',{text:'Last 14 days'}),lines(v.history,'No daily records yet.'),
+   el('h2',{text:'Email filter'}),lines(v.filter,'Nothing refused recently.'),
+   el('h2',{text:'Clean-up of never-confirmed sign-ups'}),lines(v.runs,'No runs yet.'),
+   el('div',{class:'actions'},el('button',{class:'btn',type:'button',text:'Back to reports',onclick:()=>void list(true)})),signOutRow());
  }
 
  // ---------- One report ----------

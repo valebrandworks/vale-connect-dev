@@ -134,7 +134,28 @@
   return {title:label+change,note:clean(entry?.note),by:clean(entry?.admin_email)||'A former admin',when:when(entry?.created_at)};
  }
 
- const api={LIMITS,IDLE_MINUTES,SUPPORT_EMAIL,CATEGORY_LABELS,STATUSES,FILTERS,ACTION_LABELS,ACTIONS,CARD_FIELDS,
+ // Sign-up overview (counts only; the database function returns no addresses). Resend Free allows 100 emails a day, so a few
+ // plain thresholds turn the numbers into notes. "Emails seen" is a lower bound: Auth keeps only each account's latest send time.
+ const EMAIL_NOTE_AT=60,EMAIL_WARN_AT=80,EMAIL_DAILY_LIMIT=100;
+ function overview(data){
+  const o=data&&typeof data==='object'?data:{},n=o.now&&typeof o.now==='object'?o.now:{};
+  const num=v=>Number.isFinite(Number(v))?Number(v):0;
+  const pair=kind=>num(n[kind+'_accepted'])+' / '+num(n[kind+'_refused']);   // share_… and report_… columns
+  const sent=num(n.confirmation_emails_seen)+num(n.recovery_emails_seen);
+  const notes=[];
+  if(sent>=EMAIL_WARN_AT)notes.push({level:'warn',text:'About '+sent+' sign-up and reset emails were seen today. The free email plan allows '+EMAIL_DAILY_LIMIT+' a day (shared with testing and report alerts); new people may not receive their email once it is used up.'});
+  else if(sent>=EMAIL_NOTE_AT)notes.push({level:'note',text:'About '+sent+' sign-up and reset emails were seen today, of '+EMAIL_DAILY_LIMIT+' allowed a day on the free email plan.'});
+  if(num(n.hook_errors)>0)notes.push({level:'warn',text:'The new-account email filter had '+num(n.hook_errors)+' internal error(s) today. Sign-ups were allowed through. Ask for it to be checked.'});
+  if(num(n.purge_candidates)>0)notes.push({level:'note',text:num(n.purge_candidates)+' sign-up(s) were never confirmed and are over 7 days old. Nothing is deleted automatically yet.'});
+  const rows=[['New accounts today',num(n.new_users)],['Confirmed accounts',num(n.confirmed_users)],['Waiting for confirmation',num(n.unconfirmed_pending)],
+   ['Confirmation emails seen today',num(n.confirmation_emails_seen)],['Reset emails seen today',num(n.recovery_emails_seen)],['Sign-ups refused by the email filter today',num(n.hook_blocked)],
+   ['Shares accepted / refused today',pair('share')],['Reports accepted / refused today',pair('report')]];
+  const history=(Array.isArray(o.history)?o.history:[]).slice(0,14).map(h=>({day:clean(h.day),text:num(h.new_users)+' new, '+(num(h.confirmation_emails_seen)+num(h.recovery_emails_seen))+' emails seen, '+num(h.hook_blocked)+' refused'}));
+  const filter=(Array.isArray(o.hook_recent)?o.hook_recent:[]).slice(0,10).map(h=>({when:when(h.at),text:h.kind==='blocked'?'Refused a new account from '+clean(h.domain):'Internal error (sign-up allowed)'}));
+  const runs=(Array.isArray(o.purge_runs)?o.purge_runs:[]).slice(0,5).map(r=>({when:when(r.ran_at),text:(r.kind==='purge_applied'?'Deleted '+num(r.deleted)+' of '+num(r.candidates):'Dry run: '+num(r.candidates)+' would be deleted')+' (older than '+num(r.days)+' days)'}));
+  return {rows,notes,history,filter,runs};
+ }
+ const api={LIMITS,IDLE_MINUTES,overview,EMAIL_NOTE_AT,EMAIL_WARN_AT,SUPPORT_EMAIL,CATEGORY_LABELS,STATUSES,FILTERS,ACTION_LABELS,ACTIONS,CARD_FIELDS,
   categoryLabel,statusLabel,filterOk,isOpen,gate,mfaStep,codeOk,checkNote,checkOwnerMessage,actions,call,errorText,when,cardRows,cardState,historyLine};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeAdminCore=api;
 })(typeof window!=='undefined'?window:globalThis);
