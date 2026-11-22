@@ -46,7 +46,7 @@ function page({turnstile=true,host='dev.valebrandworks.com',accountOpen=false}={
  const els=new Map(),get=id=>{if(!els.has(id))els.set(id,new El(id,'input'));return els.get(id)};
  for(const id of ['cloud-password','cloud-password-confirm'])get(id).type='password';
  get('tab-account').hidden=!accountOpen;
- for(const id of ['cloud-signup','cloud-reset','cloud-resend','cloud-show-signin','cloud-password-hint','cloud-confirm-field','cloud-agree-field','cloud-new-password'])get(id).hidden=true;
+ for(const id of ['cloud-signup','cloud-reset','cloud-resend','cloud-show-signin','cloud-password-hint','cloud-confirm-field','cloud-agree-field','cloud-new-password','cloud-invite-note'])get(id).hidden=true;
  const calls=[],answers={},events={},ts={renders:[],resets:0,render(el,o){this.renders.push({el:el.id,...o});return 'w'+this.renders.length},reset(){this.resets++}};
  const answer=name=>answers[name]?.shift()||{data:{},error:null};
  let authFn;
@@ -66,6 +66,28 @@ const settle=()=>new Promise(r=>setTimeout(r,0));
 const shown=(p,ids)=>Object.fromEntries(ids.map(id=>[id,!p.get(id).hidden]));
 
 (async()=>{
+ // Where sign-ups are closed (production, config.js): no "Create an account" button or form, an invitation note instead, and
+ // sign-in, password reset and signed-in password change still work. Open where config.js says so (development, local).
+ {
+  const dev=page({host:'dev.valebrandworks.com'});await settle();
+  same(shown(dev,['cloud-show-signup','cloud-invite-note']),{'cloud-show-signup':true,'cloud-invite-note':false},'development still offers account creation');
+  const closed=page({host:'connect.valebrandworks.com'});await settle();
+  same(shown(closed,['cloud-show-signup','cloud-invite-note','cloud-signin','cloud-forgot']),{'cloud-show-signup':false,'cloud-invite-note':true,'cloud-signin':true,'cloud-forgot':true},'production: no create-account button, invitation note shown, sign-in and forgot-password stay');
+  assert.match(html,/id="cloud-invite-note" hidden>Accounts are currently by invitation\.<\/p>/,'the page carries the invitation note, hidden until sign-ups are closed');
+  closed.get('cloud-show-signup').handlers.click();await settle();
+  assert.equal(closed.get('account-auth-title').textContent,'Sign in','production: the sign-up screen cannot be opened');
+  same(shown(closed,['cloud-signup','cloud-confirm-field','cloud-agree-field']),{'cloud-signup':false,'cloud-confirm-field':false,'cloud-agree-field':false},'production: no sign-up fields');
+  closed.get('cloud-email').value='someone@example.invalid';closed.get('cloud-password').value='a long enough passphrase';closed.get('cloud-password-confirm').value='a long enough passphrase';closed.get('cloud-agree').checked=true;
+  await closed.click('cloud-signup');await settle();
+  assert.equal(closed.calls.filter(c=>c[0]==='signUp').length,0,'production: signUp is never sent to the server, even if the handler is called directly');
+  closed.get('cloud-forgot').handlers.click();await settle();
+  assert.equal(closed.get('account-auth-title').textContent,'Reset your password','production: password reset still opens');
+  same(shown(closed,['cloud-invite-note']),{'cloud-invite-note':false},'the invitation note is only on the sign-in screen');
+  // A signed-in (for example invited) person can still choose a password.
+  closed.auth('SIGNED_IN',{id:'u1',email:'invited@example.invalid'});await settle();
+  assert.equal(closed.get('cloud-change-password').hidden,false,'production: a signed-in account can still change its password');
+  assert.equal(closed.get('account-home')?.hidden??false,false);
+ }
  // Sign-in screen first; the security check loads only when the form is used.
  let p=page();await settle();
  assert.equal(p.get('account-auth-title').textContent,'Sign in');
