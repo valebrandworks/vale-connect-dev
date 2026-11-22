@@ -79,6 +79,18 @@ assert.match(read('index.html'),/<meta name="robots" content="noindex">/,'the ap
  assert.doesNotMatch(H,/includeSubDomains|preload/i,'HSTS covers this host only and is not preloaded');
  assert.equal(H.match(/Content-Security-Policy:.*/g).length,1);assert.doesNotMatch(H,/script-src|connect-src|frame-src|default-src/,'the header adds only frame-ancestors, so Supabase and Turnstile rules stay in each page');
  assert.match(H,/X-Robots-Tag: noindex/,'search engines kept out until launch');
+ // A real 404 page: Cloudflare Pages answers unknown paths with the home page and 200 unless a top-level 404.html exists.
+ assert.ok(files.has('404.html'),'the bundle carries 404.html');
+ const NF=files.get('404.html').toString('utf8');
+ assert.equal(NF,b.NOT_FOUND_PAGE);
+ assert.match(NF,/<title>Page not found<\/title>/);assert.match(NF,/<h1>Page not found<\/h1>/);
+ assert.match(NF,/<meta name="robots" content="noindex,nofollow">/,'the 404 page is kept out of search results');
+ assert.doesNotMatch(NF,/<script|\son[a-z]+=|<link|<img|<iframe|src=|javascript:/i,'the 404 page has no script, styles, images or frames');
+ assert.match(NF,/default-src 'none'/,'the 404 page has its own strict policy');
+ assert.deepEqual([...NF.matchAll(/href="([^"]*)"/g)].map(m=>m[1]),['/'],'its only link is the home page');
+ assert.doesNotMatch(NF,/supabase|turnstile|publishable|sb_|0x4|localhost|dev\./i,'no service addresses, keys or development information');
+ for(const bad of b.FORBIDDEN)assert.ok(!NF.includes(bad),'404.html keeps a development value: '+bad);
+ assert.equal(files.get('_headers').toString('utf8'),b.HEADERS,'the security headers are unchanged by the 404 page');
  for(const bad of b.FORBIDDEN)assert.ok(!H.includes(bad),'_headers keeps a development value: '+bad);
  for(const [n,bytes] of files)if(/\.(html|js|webmanifest|txt)$/.test(n)){const t=bytes.toString('utf8');for(const bad of b.FORBIDDEN)assert.ok(!t.includes(bad),`${n} keeps a development value: ${bad}`)}
  // The bundled settings know production only.
