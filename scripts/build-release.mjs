@@ -26,6 +26,24 @@ export function siteFiles() {
   return [...top, ...walk('assets')].sort();
 }
 
+// Response headers for Cloudflare Pages (its `_headers` file), applied to every page of the production site.
+// - HSTS: one day to start (raise only after launch checks), for this exact host only: no includeSubDomains, no preload.
+// - frame-ancestors / X-Frame-Options stop other websites from framing the site. The page's own policy (a meta tag in each
+//   page, which allows Supabase and Turnstile) is not repeated here, so the two never conflict.
+// - X-Robots-Tag keeps search engines out until launch, in addition to robots.txt and each page's robots tag. REMOVE THIS
+//   LINE AT LAUNCH (a reviewed change) once the site is meant to be indexed.
+export const HEADERS = [
+  '/*',
+  '  Strict-Transport-Security: max-age=86400',
+  '  X-Frame-Options: DENY',
+  "  Content-Security-Policy: frame-ancestors 'none'",
+  '  X-Content-Type-Options: nosniff',
+  '  Referrer-Policy: strict-origin-when-cross-origin',
+  '  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()',
+  '  X-Robots-Tag: noindex, nofollow',
+  '',
+].join('\n');
+
 // Exact replacements, each of which must match (a missed one fails the build instead of shipping development text).
 const REPLACE = {
   'index.html': [['<title>VALE Connect — Development</title>', '<title>VALE Connect</title>'], ['content="VALE Dev"', 'content="VALE Connect"'],
@@ -76,9 +94,10 @@ export function bundle() {
     const bytes = fs.readFileSync(path.join(repo, name));
     out.set(name, /\.(html|js|css|webmanifest|txt)$/.test(name) ? Buffer.from(check(name, transform(name, bytes.toString('utf8'))), 'utf8') : bytes);
   }
-  // The custom domain for GitHub Pages, and search engines kept out until launch.
+  // The custom domain (kept for a GitHub Pages fallback; Cloudflare Pages ignores it), the security headers, and search engines kept out until launch.
   out.set('CNAME', Buffer.from(DOMAIN + '\n'));
   out.set('robots.txt', Buffer.from('User-agent: *\nDisallow: /\n'));
+  out.set('_headers', Buffer.from(check('_headers', HEADERS), 'utf8'));
   const cfg = out.get('config.js').toString('utf8');
   for (const need of [prod.supabaseUrl, prod.publishableKey, prod.turnstileSiteKey, DOMAIN]) if (!cfg.includes(need)) throw new Error('config.js lacks a production value');
   return out;
