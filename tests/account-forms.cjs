@@ -222,6 +222,12 @@ const shown=(p,ids)=>Object.fromEntries(ids.map(id=>[id,!p.get(id).hidden]));
   assert.match(mm({message:"That email provider isn't supported for new accounts. Please use a different email address."},'signup'),/provider isn’t supported/);
   assert.equal(mm({message:'Error sending recovery email'},'reset'),'Something went wrong. Please try again.','reset never reveals an email problem that only exists for real accounts');
   assert.match(core.RESET_SENT,/try again later/);
+  // The server's real answers for the current-password rule and the limits (recorded from development, 2026-11-22).
+  assert.equal(mm({message:'Current password required when setting new password.',code:'current_password_required'},'password'),'Enter your current password.');
+  assert.match(mm({message:'Current password required when setting new password.',code:'current_password_invalid'},'password'),/current password wasn’t accepted/,'both codes carry the same English text: the code decides');
+  assert.match(mm({message:'New password should be different from the old password.',code:'same_password'},'password'),/password you already use/);
+  assert.equal(mm({message:'Password cannot be longer than 72 characters',code:'validation_failed'},'password'),core.TOO_LONG,'not mistaken for the minimum length');
+  assert.match(mm({message:'Password should be at least 10 characters.',code:'weak_password',reasons:['length']},'password'),/at least 10/);
   assert.match(mm({message:'Password should be at least 10 characters',code:'weak_password'},'signup'),/at least 10/);
   assert.match(mm({message:'Password is known to be weak and easy to guess, please choose a different one.',code:'weak_password'},'signup'),/data breach/);
   assert.match(mm({message:'weak',code:'weak_password'},'signup'),/stronger password/);

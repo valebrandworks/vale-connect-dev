@@ -51,6 +51,9 @@
   if(/signups? not allowed|signup.*disabled|signup_disabled/.test(m+code))return 'New accounts aren’t open yet. Please check back soon.';
   if(/email not confirmed|email_not_confirmed/.test(m+code))return 'Confirm your email address first. We can send the link again.';
   // Supabase uses the code weak_password for several reasons; the reasons (or the wording) tell them apart.
+  // The server's own codes for the current-password rule (checked on development): required = none was sent, invalid = it was wrong (both carry the same English text).
+  if(code==='current_password_required')return 'Enter your current password.';
+  if(code==='current_password_invalid')return 'Your current password wasn’t accepted. Check it and try again.';
   if(reasons.includes('pwned')||/pwned|leaked|compromised|breach|known to be weak/.test(m))return 'That password has appeared in a data breach. Choose a different one.';
   if(reasons.includes('length')||(/password/.test(m)&&/(at least|short|too short)/.test(m)))return 'Use at least '+PASSWORD_MIN+' characters for your password.';
   if(/too long|longer than|72|maximum.*(character|length)/.test(m)&&/password/.test(m))return TOO_LONG;
