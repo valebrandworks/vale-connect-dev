@@ -8,6 +8,9 @@ const $=id=>document.getElementById(id);if(!$('cloud-auth'))return;
 const core=window.ValeAuthCore;if(!core){const s=$('cloud-auth-status');if(s)s.textContent='Sign-in is unavailable right now. Please refresh the page.';return}
 // This web address's project (config.js). Any other address gets no project at all.
 const ENV=window.ValeConfig?.forHost(location.hostname)||null;
+// Where sign-ups are closed (config.js), the page offers no "Create an account" form and says accounts are by invitation.
+// Cosmetic only, NOT a security control: the server (Supabase Auth, sign-ups disabled) refuses sign-ups regardless.
+const signupOpen=ENV?.signupOpen!==false;
 const TURNSTILE_SRC='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 let client=null,user=null,generation=0,mode='signin',busy=false;
 function accountRequest(){return user?{id:user.id,generation}:null}
@@ -47,12 +50,12 @@ const SCREENS={
  confirm:{title:'Check your email',intro:'Open the confirmation link we sent you, then come back and sign in. It can take a minute to arrive.'},
 };
 function setMode(next,{keepMessage=false,mount=true}={}){
- mode=SCREENS[next]?next:'signin';
+ mode=SCREENS[next]&&!(next==='signup'&&!signupOpen)?next:'signin';
  msg('account-auth-title',SCREENS[mode].title);msg('account-auth-intro',SCREENS[mode].intro);
  const signup=mode==='signup';
  show('cloud-password-field',mode==='signin'||signup);show('cloud-password-hint',signup);show('cloud-confirm-field',signup);show('cloud-agree-field',signup);
  show('cloud-signin',mode==='signin');show('cloud-signup',signup);show('cloud-reset',mode==='reset');show('cloud-resend',mode==='confirm');
- show('cloud-forgot',mode==='signin');show('cloud-show-signup',mode==='signin');show('cloud-show-signin',mode!=='signin');
+ show('cloud-forgot',mode==='signin');show('cloud-show-signup',mode==='signin'&&signupOpen);show('cloud-invite-note',mode==='signin'&&!signupOpen);show('cloud-show-signin',mode!=='signin');
  $('cloud-password')?.setAttribute?.('autocomplete',signup?'new-password':'current-password');
  if(!keepMessage)msg('cloud-auth-status','');
  if(mount)authCheck.mount();
@@ -100,7 +103,7 @@ async function signIn(){
  finally{authCheck.reset();setBusy(false)}
 }
 async function signUp(){
- if(!client||busy)return;
+ if(!client||busy||!signupOpen)return;
  const email=$('cloud-email').value.trim(),password=$('cloud-password').value;
  const bad=core.checkSignUp({email,password,confirm:$('cloud-password-confirm')?.value??'',agreed:!!$('cloud-agree')?.checked});
  if(bad){msg('cloud-auth-status',bad);return}

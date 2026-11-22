@@ -9,13 +9,13 @@
  'use strict';
  const ENVIRONMENTS=Object.freeze({
   production:Object.freeze({name:'production',label:'',supabaseUrl:'https://uhribjaiyuwivzqxusur.supabase.co',
-   publishableKey:'sb_publishable_Va2YN7LUG0ZOuwril533WA__PUz_PL_',turnstileSiteKey:'0x4AAAAAAGMQcyUJYuAxhLXp',storagePrefix:'vale-connect-',backupEnvironment:'production',backupPrefix:'vale-connect-cloud-connections-'}),
+   publishableKey:'sb_publishable_Va2YN7LUG0ZOuwril533WA__PUz_PL_',turnstileSiteKey:'0x4AAAAAAGMQcyUJYuAxhLXp',storagePrefix:'vale-connect-',backupEnvironment:'production',backupPrefix:'vale-connect-cloud-connections-',signupOpen:false}),
   /* dev-only:start */
   development:Object.freeze({name:'development',label:'Development',supabaseUrl:'https://jlprxnmdvoloahssjlnu.supabase.co',
-   publishableKey:'sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_',turnstileSiteKey:'0x4AAAAAAF5bZ3cludhKsLJJ',storagePrefix:'vale-connect-dev-',backupEnvironment:'development',backupPrefix:'vale-dev-cloud-connections-'}),
+   publishableKey:'sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_',turnstileSiteKey:'0x4AAAAAAF5bZ3cludhKsLJJ',storagePrefix:'vale-connect-dev-',backupEnvironment:'development',backupPrefix:'vale-dev-cloud-connections-',signupOpen:true}),
   // This computer only: the development project with Cloudflare's published TEST site key, whose tokens the server never accepts.
   local:Object.freeze({name:'local',label:'Local',supabaseUrl:'https://jlprxnmdvoloahssjlnu.supabase.co',
-   publishableKey:'sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_',turnstileSiteKey:'1x00000000000000000000AA',storagePrefix:'vale-connect-dev-',backupEnvironment:'development',backupPrefix:'vale-dev-cloud-connections-'}),
+   publishableKey:'sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_',turnstileSiteKey:'1x00000000000000000000AA',storagePrefix:'vale-connect-dev-',backupEnvironment:'development',backupPrefix:'vale-dev-cloud-connections-',signupOpen:true}),
   /* dev-only:end */
  });
  const HOSTS=Object.freeze({'connect.valebrandworks.com':'production',
