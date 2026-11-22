@@ -262,8 +262,8 @@ async function behaviour(sources){
  assert.equal(t.heading(),'Sign-up overview');assert.match(t.text(),/New accounts today: 2/);assert.match(t.text(),/Refused a new account from mailinator\.com/);assert.match(t.text(),/Dry run: 0 would be deleted/);
  assert.doesNotMatch(t.text(),/@|example\.invalid/,'no email addresses on the overview');assert.doesNotMatch(t.text(),/free email plan allows/,'no warning at low volume');
  assert.deepEqual(t.rpcCalls('admin_auth_overview').length,1);await t.click('Back to reports');assert.equal(t.heading(),'Report review');
- t=scenario(sources,{aal:'aal2'});t.sim.overview={now:{confirmation_emails_seen:70,recovery_emails_seen:12,hook_errors:2,purge_candidates:3},history:[],hook_recent:[],purge_runs:[]};await t.settle();await t.click('Sign-up overview');
- assert.match(t.text(),/About 82 sign-up and reset emails/);assert.match(t.text(),/used up/);assert.match(t.text(),/internal error/);assert.match(t.text(),/3 sign-up\(s\) were never confirmed/);
+ t=scenario(sources,{aal:'aal2'});t.sim.overview={now:{confirmation_emails_seen:70,recovery_emails_seen:12,hook_errors:2,purge_candidates:3},history:[],hook_recent:[],purge_runs:[{ran_at:'2026-11-22T04:00:00Z',kind:'purge_started',days:7,candidates:3,deleted:0}]};await t.settle();await t.click('Sign-up overview');
+ assert.match(t.text(),/About 82 sign-up and reset emails/);assert.match(t.text(),/used up/);assert.match(t.text(),/internal error/);assert.match(t.text(),/3 sign-up\(s\) were never confirmed/);assert.match(t.text(),/Started a deletion batch of 3/,'a started batch is not shown as a dry run');
  t=scenario(sources,{aal:'aal2'});await t.settle();t.sim.fail='Nope.';await t.click('Sign-up overview');assert.match(t.text(),/Nope\./,'a database message is shown plainly');
  t=scenario(sources,{aal:'aal2'});t.sim.overview='garbage';await t.settle();await t.click('Sign-up overview');assert.equal(t.heading(),'Sign-up overview','odd data does not break the page');
  // The sign-out button.

@@ -152,7 +152,7 @@
    ['Shares accepted / refused today',pair('share')],['Reports accepted / refused today',pair('report')]];
   const history=(Array.isArray(o.history)?o.history:[]).slice(0,14).map(h=>({day:clean(h.day),text:num(h.new_users)+' new, '+(num(h.confirmation_emails_seen)+num(h.recovery_emails_seen))+' emails seen, '+num(h.hook_blocked)+' refused'}));
   const filter=(Array.isArray(o.hook_recent)?o.hook_recent:[]).slice(0,10).map(h=>({when:when(h.at),text:h.kind==='blocked'?'Refused a new account from '+clean(h.domain):'Internal error (sign-up allowed)'}));
-  const runs=(Array.isArray(o.purge_runs)?o.purge_runs:[]).slice(0,5).map(r=>({when:when(r.ran_at),text:(r.kind==='purge_applied'?'Deleted '+num(r.deleted)+' of '+num(r.candidates):'Dry run: '+num(r.candidates)+' would be deleted')+' (older than '+num(r.days)+' days)'}));
+  const runs=(Array.isArray(o.purge_runs)?o.purge_runs:[]).slice(0,5).map(r=>({when:when(r.ran_at),text:(r.kind==='purge_applied'?'Deleted '+num(r.deleted)+' of '+num(r.candidates):r.kind==='purge_started'?'Started a deletion batch of '+num(r.candidates):'Dry run: '+num(r.candidates)+' would be deleted')+' (older than '+num(r.days)+' days)'}));
   return {rows,notes,history,filter,runs};
  }
  const api={LIMITS,IDLE_MINUTES,overview,EMAIL_NOTE_AT,EMAIL_WARN_AT,SUPPORT_EMAIL,CATEGORY_LABELS,STATUSES,FILTERS,ACTION_LABELS,ACTIONS,CARD_FIELDS,
