@@ -35,7 +35,7 @@ const call = async query => {
   const text = await r.text(); let json = null; try { json = JSON.parse(text); } catch {}
   return { status: r.status, text, json };
 };
-// Setup, cleanup and checks wait and retry when the management API throttles (HTTP 429); only the simultaneous calls under test use the raw call.
+// Setup, cleanup and checks (via `must`, which throws on any non-201 result) wait and retry when the management API throttles (HTTP 429); only the simultaneous calls under test use the raw call.
 const callPatient = async query => { for (let i = 0; i < 10; i++) { const r = await call(query); if (r.status !== 429) return r; await new Promise(res => setTimeout(res, 3000 * (i + 1))); } return call(query); };
 const rows = async query => { const r = await callPatient(query); if (r.status !== 201) throw new Error('query failed (' + r.status + '): ' + r.text.slice(0, 200)); return r.json; };
 const uuid = () => crypto.randomUUID();
@@ -44,49 +44,75 @@ let problems = 0;
 const check = (ok, label, detail = '') => { console.log((ok ? 'pass  ' : 'FAIL  ') + label + (detail ? ' ' + detail : '')); if (!ok) problems++; };
 
 // ---------- cleanup, restore and verification ----------
-async function removeFixtures() {
-  await callPatient(`DELETE FROM vale_private.card_reports WHERE card_slug LIKE '${SLUG_PREFIX}%';
-              DELETE FROM public.card_shares WHERE card_id IN (SELECT id FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%');
-              DELETE FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%';
-              DELETE FROM auth.users WHERE email LIKE '%${EMAIL_DOMAIN}';
-              DELETE FROM public.retired_card_slugs WHERE slug LIKE '${SLUG_PREFIX}%';`);
+// Every cleanup/restore statement must succeed: a non-201 answer (after patient retries) stops the run with an error naming the step.
+async function must(query, label) {
+  const r = await callPatient(query);
+  if (r.status !== 201) throw new Error(label + ' failed (HTTP ' + r.status + '): ' + r.text.slice(0, 200));
+  return r;
+}
+const NONE = '00000000-0000-0000-0000-000000000000';
+const idList = ids => ids.length ? ids.map(i => `'${i}'`).join(',') : `'${NONE}'`;
+// fixtureIds: user and card ids recorded when the fixtures were created (also saved in the state file), so records tied to them
+// are removed and verified even if a row lost its marker or its card. Rows are also matched by the markers alone (crash recovery).
+const usersOf = f => `(SELECT id FROM auth.users WHERE email LIKE '%${EMAIL_DOMAIN}' UNION SELECT unnest(ARRAY[${idList(f.users)}]::uuid[]))`;
+const cardsOf = f => `(SELECT id FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%' UNION SELECT unnest(ARRAY[${idList(f.cards)}]::uuid[]))`;
+async function removeFixtures(f = { users: [], cards: [] }) {
+  const U = usersOf(f), C = cardsOf(f);
+  await must(`DELETE FROM public.notifications WHERE owner_id IN ${U};`, 'delete notifications');
+  await must(`DELETE FROM public.share_attempts WHERE card_id IN ${C} OR network_hash LIKE 'cc-net-%' OR sharer_user_id IN ${U};`, 'delete share attempts');
+  await must(`DELETE FROM vale_private.report_attempts WHERE card_id IN ${C};`, 'delete report attempts');
+  await must(`DELETE FROM vale_private.card_reports WHERE card_slug LIKE '${SLUG_PREFIX}%';`, 'delete reports');
+  await must(`DELETE FROM public.card_shares WHERE card_id IN ${C} OR owner_id IN ${U};`, 'delete shares');
+  await must(`DELETE FROM public.connections WHERE owner_id IN ${U} OR email LIKE '%${EMAIL_DOMAIN}';`, 'delete connections');
+  await must(`DELETE FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%' OR id IN ${C};`, 'delete cards');
+  await must(`DELETE FROM auth.users WHERE email LIKE '%${EMAIL_DOMAIN}' OR id IN ${U};`, 'delete users');
+  await must(`DELETE FROM public.retired_card_slugs WHERE slug LIKE '${SLUG_PREFIX}%';`, 'delete retired slugs');
 }
 async function restoreLimits(originals) {
-  for (const l of originals.share) await callPatient(`UPDATE public.share_limits SET max_count = ${l.max_count}, window_seconds = ${l.window_seconds} WHERE name = '${l.name}'`);
-  for (const s of originals.report) await callPatient(`UPDATE vale_private.report_settings SET value = ${s.value} WHERE name = '${s.name}'`);
+  for (const l of originals.share) await must(`UPDATE public.share_limits SET max_count = ${l.max_count}, window_seconds = ${l.window_seconds} WHERE name = '${l.name}'`, 'restore share limit ' + l.name);
+  for (const s of originals.report) await must(`UPDATE vale_private.report_settings SET value = ${s.value} WHERE name = '${s.name}'`, 'restore report setting ' + s.name);
 }
 const snapshotLimits = async () => ({
   share: await rows(`SELECT name, max_count, window_seconds FROM public.share_limits ORDER BY name`),
   report: await rows(`SELECT name, value FROM vale_private.report_settings ORDER BY name`) });
-const leftovers = async () => (await rows(`SELECT
-  (SELECT count(*) FROM auth.users WHERE email LIKE '%${EMAIL_DOMAIN}')::int AS users,
-  (SELECT count(*) FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%')::int AS cards,
+const leftovers = async (f = { users: [], cards: [] }) => (await rows(`SELECT
+  (SELECT count(*) FROM auth.users WHERE id IN ${usersOf(f)})::int AS users,
+  (SELECT count(*) FROM public.public_cards WHERE id IN ${cardsOf(f)} OR slug LIKE '${SLUG_PREFIX}%')::int AS cards,
   (SELECT count(*) FROM vale_private.card_reports WHERE card_slug LIKE '${SLUG_PREFIX}%')::int AS reports,
   (SELECT count(*) FROM public.retired_card_slugs WHERE slug LIKE '${SLUG_PREFIX}%')::int AS retired,
-  (SELECT count(*) FROM public.card_shares s JOIN public.public_cards c ON c.id = s.card_id WHERE c.slug LIKE '${SLUG_PREFIX}%')::int AS shares`))[0];
-async function restoreAndVerify(originals, label) {
-  await removeFixtures(); await restoreLimits(originals);
-  const now = await snapshotLimits(), left = await leftovers();
+  (SELECT count(*) FROM public.card_shares WHERE card_id IN ${cardsOf(f)} OR owner_id IN ${usersOf(f)})::int AS shares,
+  (SELECT count(*) FROM public.share_attempts WHERE card_id IN ${cardsOf(f)} OR network_hash LIKE 'cc-net-%' OR sharer_user_id IN ${usersOf(f)})::int AS share_attempts,
+  (SELECT count(*) FROM vale_private.report_attempts WHERE card_id IN ${cardsOf(f)})::int AS report_attempts,
+  (SELECT count(*) FROM public.connections WHERE owner_id IN ${usersOf(f)} OR email LIKE '%${EMAIL_DOMAIN}')::int AS connections,
+  (SELECT count(*) FROM public.notifications WHERE owner_id IN ${usersOf(f)})::int AS notifications`))[0];
+async function restoreAndVerify(originals, label, f) {
+  await removeFixtures(f); await restoreLimits(originals);
+  const now = await snapshotLimits(), left = await leftovers(f);
   check(JSON.stringify(now) === JSON.stringify(originals), label + ': limits restored exactly');
-  check(Object.values(left).every(n => n === 0), label + ': no test fixture, report, share or retired slug left', JSON.stringify(left));
+  check(Object.values(left).every(n => n === 0), label + ': no test fixture, share, share attempt, report, report attempt, connection, notification or retired slug left', JSON.stringify(left));
 }
 
 if (process.argv.includes('--restore')) {
-  if (!fs.existsSync(STATE)) { console.log('No saved originals found; nothing to restore.'); const left = await leftovers(); console.log('leftovers:', JSON.stringify(left)); await removeFixtures(); process.exit(0); }
-  const originals = JSON.parse(fs.readFileSync(STATE, 'utf8'));
-  await restoreAndVerify(originals, 'restore'); fs.unlinkSync(STATE); process.exit(problems ? 1 : 0);
+  if (!fs.existsSync(STATE)) { console.log('No saved originals found; nothing to restore.'); const left = await leftovers(); console.log('leftovers:', JSON.stringify(left)); if (Object.values(left).some(n => n)) { await removeFixtures(); const after = await leftovers(); console.log('after removal:', JSON.stringify(after)); process.exit(Object.values(after).every(n => n === 0) ? 0 : 1); } process.exit(0); }
+  const saved = JSON.parse(fs.readFileSync(STATE, 'utf8'));
+  const originals = saved.originals ?? saved, f = saved.fixtures ?? { users: [], cards: [] };
+  try { await restoreAndVerify(originals, 'restore', f); } catch (e) { console.log('Restore failed: ' + e.message); problems++; }
+  if (!problems) fs.unlinkSync(STATE);
+  console.log(problems ? `\n${problems} PROBLEM(S); saved originals kept` : '\nRESTORED'); process.exit(problems ? 1 : 0);
 }
 if (fs.existsSync(STATE)) { console.log('A previous run left its saved originals at ' + STATE + '. Run with --restore first.'); process.exit(2); }
 { const left = await leftovers(); if (!Object.values(left).every(n => n === 0)) { console.log('Test fixtures from an earlier run exist (' + JSON.stringify(left) + '). Run with --restore first.'); process.exit(2); } }
 
 const originals = await snapshotLimits();
-fs.writeFileSync(STATE, JSON.stringify(originals));
+const fixtures = { users: [], cards: [] };
+const saveState = () => fs.writeFileSync(STATE, JSON.stringify({ originals, fixtures }));
+saveState();
 let interrupted = false;
-const bail = async () => { if (interrupted) return; interrupted = true; console.log('\nInterrupted: restoring...'); try { await restoreAndVerify(originals, 'interrupted'); fs.unlinkSync(STATE); } catch (e) { console.log('Restore failed: ' + e.message + ' (run with --restore)'); } process.exit(1); };
+const bail = async () => { if (interrupted) return; interrupted = true; console.log('\nInterrupted: restoring...'); try { const b = problems; await restoreAndVerify(originals, 'interrupted', fixtures); if (problems === b) fs.unlinkSync(STATE); else console.log('Cleanup not verified; saved originals kept (run with --restore)'); } catch (e) { console.log('Restore failed: ' + e.message + ' (run with --restore)'); } process.exit(1); };
 process.on('SIGINT', bail); process.on('SIGTERM', bail);
 
-const setShare = (name, max, win) => callPatient(`UPDATE public.share_limits SET max_count = ${max}${win ? ', window_seconds = ' + win : ''} WHERE name = '${name}'`);
-const setReport = (name, value) => callPatient(`UPDATE vale_private.report_settings SET value = ${value} WHERE name = '${name}'`);
+const setShare = (name, max, win) => must(`UPDATE public.share_limits SET max_count = ${max}${win ? ', window_seconds = ' + win : ''} WHERE name = '${name}'`, 'set share limit ' + name);
+const setReport = (name, value) => must(`UPDATE vale_private.report_settings SET value = ${value} WHERE name = '${name}'`, 'set report setting ' + name);
 const result = r => { try { return r.json?.[0]?.r ?? ('HTTP ' + r.status + ' ' + r.text.slice(0, 80)); } catch { return 'unreadable'; } };
 const tally = list => list.reduce((a, x) => (a[x] = (a[x] || 0) + 1, a), {});
 
@@ -94,6 +120,7 @@ try {
   // ---------- fixtures (committed, marked) ----------
   const owners = Array.from({ length: 6 }, (_, i) => ({ id: uuid(), card: uuid(), slug: `${SLUG_PREFIX}${i}-${crypto.randomBytes(3).toString('hex')}` }));
   const member = { id: uuid(), card: uuid(), slug: `${SLUG_PREFIX}m-${crypto.randomBytes(3).toString('hex')}` };
+  fixtures.users.push(...owners.map(o => o.id), member.id); fixtures.cards.push(...owners.map(o => o.card), member.card); saveState();
   let setup = '';
   for (const o of owners) setup += `INSERT INTO auth.users(id, email) VALUES ('${o.id}', 'cc-o-${o.id}${EMAIL_DOMAIN}');
     INSERT INTO public.public_cards(id, owner_id, slug, display_name, public_email, public_phone, published) VALUES ('${o.card}', '${o.id}', '${o.slug}', 'CC Owner', '', '', true);\n`;
@@ -109,7 +136,7 @@ try {
   const report = (i, net) => `SET LOCAL ROLE service_role; SELECT public.submit_card_report('${slugOf(i)}', '${uuid()}'::uuid, 'spam', 'cc ${i}', '', true, '${net}') AS r;`;
   const pause = ms => new Promise(res => setTimeout(res, ms));
   const fire = async (n, make) => { const t0 = Date.now(); const res = await Promise.all(Array.from({ length: n }, (_, i) => call(make(i)))); return { res, ms: Date.now() - t0 }; };
-  const clearAttempts = () => callPatient(`DELETE FROM public.share_attempts WHERE card_id IN (SELECT id FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%'); DELETE FROM vale_private.report_attempts WHERE card_id IN (SELECT id FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%'); DELETE FROM vale_private.card_reports WHERE card_slug LIKE '${SLUG_PREFIX}%'; DELETE FROM public.card_shares WHERE card_id IN (SELECT id FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%')`);
+  const clearAttempts = () => must(`DELETE FROM public.share_attempts WHERE card_id IN (SELECT id FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%'); DELETE FROM vale_private.report_attempts WHERE card_id IN (SELECT id FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%'); DELETE FROM vale_private.card_reports WHERE card_slug LIKE '${SLUG_PREFIX}%'; DELETE FROM public.card_shares WHERE card_id IN (SELECT id FROM public.public_cards WHERE slug LIKE '${SLUG_PREFIX}%')`, 'clear attempts');
   // Retry a scenario if the management API throttled some calls (a throttled call never reached the database).
   const scenario = async (name, setupFn, n, make, expected) => {
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -184,7 +211,7 @@ try {
   console.log('Run failed: ' + e.message); problems++;
 } finally {
   const before = problems;
-  await restoreAndVerify(originals, 'cleanup');
+  try { await restoreAndVerify(originals, 'cleanup', fixtures); } catch (e) { console.log('FAIL  cleanup stopped: ' + e.message + ' (saved originals kept; run with --restore)'); problems++; }
   // Keep the saved originals if cleanup could not be verified, so '--restore' can finish the job.
   if (problems === before) { try { fs.unlinkSync(STATE); } catch {} }
 }
