@@ -71,6 +71,11 @@ assert.match(read('index.html'),/<meta name="robots" content="noindex">/,'the ap
  for(const n of names)assert.doesNotMatch(n,/^(tests|scripts|supabase|docs|node_modules|release)\/|^package|^README|^\.|\.cjs$|\.mjs$|\.sql$|\.md$/,'only site files are bundled: '+n);
  for(const need of ['index.html','p.html','report.html','admin.html','config.js','card-page.js','report-page.js','offline.js','sw.js','manifest.webmanifest','CNAME','robots.txt','assets/icons/icon-192.png'])assert.ok(files.has(need),'bundled: '+need);
  assert.equal(files.get('CNAME').toString(),'connect.valebrandworks.com\n');assert.equal(files.get('robots.txt').toString(),'User-agent: *\nDisallow: /\n','search engines kept out until launch');
+ // Sign-ups: closed in the production bundle (the page offers no create-account form), open where development says so.
+ const prodCfg=files.get('config.js').toString('utf8');
+ assert.match(prodCfg,/signupOpen:false/,'production: sign-ups closed in the page');assert.doesNotMatch(prodCfg,/signupOpen:true/,'production: no open-sign-up setting ships');
+ assert.match(files.get('index.html').toString('utf8'),/id="cloud-invite-note" hidden>Accounts are currently by invitation\./,'production page carries the invitation note');
+ assert.equal(require(path.join(root,'config.js')).ENVIRONMENTS.development.signupOpen,true,'development keeps account creation');
  // Cloudflare Pages response headers: exact content, HSTS scoped to this host only, no clash with the pages' own policy.
  assert.ok(files.has('_headers'),'the bundle carries the security headers');
  const H=files.get('_headers').toString('utf8');
