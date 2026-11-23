@@ -42,7 +42,7 @@ assert.match(html,/id="cloud-auth-status" role="status" aria-live="polite"/);ass
 // ---------- Behaviour, with a simulated page ----------
 class El{constructor(id='',tag='div'){Object.assign(this,{id,tagName:tag,value:'',textContent:'',hidden:false,disabled:false,checked:false,open:false,type:tag==='input'?'text':'',attrs:{},handlers:{},children:[]})}
  addEventListener(n,f){this.handlers[n]=f}setAttribute(k,v){this.attrs[k]=String(v)}getAttribute(k){return this.attrs[k]??null}replaceChildren(...n){this.children=n}append(...n){this.children.push(...n)}focus(){}}
-function page({turnstile=true,host='dev.valebrandworks.com',accountOpen=false,clock=null}={}){
+function page({turnstile=true,host='dev.valebrandworks.com',accountOpen=false,clock=null,closed=false}={}){
  const els=new Map(),get=id=>{if(!els.has(id))els.set(id,new El(id,'input'));return els.get(id)};
  for(const id of ['cloud-password','cloud-password-confirm'])get(id).type='password';
  get('tab-account').hidden=!accountOpen;
@@ -61,7 +61,8 @@ function page({turnstile=true,host='dev.valebrandworks.com',accountOpen=false,cl
  const document={getElementById:get,createElement:t=>new El('',t),createTextNode:t=>({textContent:t}),head:new El('head'),querySelector:()=>null,addEventListener(){}};
  const context={window,document,location:{hostname:host,origin:'https://'+host,pathname:'/'},CustomEvent:class{constructor(t,o){this.type=t;this.detail=o?.detail}},Date:clock?class extends Date{static now(){return clock.t}}:Date,console,
   fetch:async(url,init)=>{fetches.push([url,init]);if(net.logoutStatus==='down')throw new Error('network down');return {status:net.logoutStatus}}};
- vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);vm.runInContext(read('auth-core.js'),context);vm.runInContext(read('cloud-auth.js'),context);
+ vm.createContext(context);vm.runInContext(require('node:fs').readFileSync(require('node:path').join(root,'config.js'),'utf8'),context);if(closed){const orig=window.ValeConfig.forHost;window.ValeConfig={...window.ValeConfig,forHost:h=>({...orig(h),signupOpen:false})}}   // the page's behaviour when its environment setting closes sign-ups
+ vm.runInContext(read('auth-core.js'),context);vm.runInContext(read('cloud-auth.js'),context);
  return {get,calls,answers,ts,events,fetches,net,auth:(e,u)=>authFn(e,u?{user:u}:null),status:()=>get('cloud-auth-status').textContent,
   submit:()=>get('cloud-auth').handlers.submit({preventDefault(){}}),click:id=>get(id).handlers.click()};
 }
@@ -74,7 +75,8 @@ const shown=(p,ids)=>Object.fromEntries(ids.map(id=>[id,!p.get(id).hidden]));
  {
   const dev=page({host:'dev.valebrandworks.com'});await settle();
   same(shown(dev,['cloud-show-signup','cloud-invite-note']),{'cloud-show-signup':true,'cloud-invite-note':false},'development still offers account creation');
-  const closed=page({host:'connect.valebrandworks.com'});await settle();
+  const closed=page({host:'connect.valebrandworks.com',closed:true});await settle();
+  const opened=page({host:'connect.valebrandworks.com'});await settle();same(shown(opened,['cloud-show-signup','cloud-invite-note']),{'cloud-show-signup':true,'cloud-invite-note':false},'production: the create-account button is offered (the server still decides whether sign-ups are open)');
   same(shown(closed,['cloud-show-signup','cloud-invite-note','cloud-signin','cloud-forgot']),{'cloud-show-signup':false,'cloud-invite-note':true,'cloud-signin':true,'cloud-forgot':true},'production: no create-account button, invitation note shown, sign-in and forgot-password stay');
   assert.match(html,/id="cloud-invite-note" hidden>Accounts are currently by invitation\.<\/p>/,'the page carries the invitation note, hidden until sign-ups are closed');
   closed.get('cloud-show-signup').handlers.click();await settle();

@@ -73,7 +73,7 @@ assert.match(read('index.html'),/<meta name="robots" content="noindex">/,'the ap
  assert.equal(files.get('CNAME').toString(),'connect.valebrandworks.com\n');assert.equal(files.get('robots.txt').toString(),'User-agent: *\nDisallow: /\n','search engines kept out until launch');
  // Sign-ups: closed in the production bundle (the page offers no create-account form), open where development says so.
  const prodCfg=files.get('config.js').toString('utf8');
- assert.match(prodCfg,/signupOpen:false/,'production: sign-ups closed in the page');assert.doesNotMatch(prodCfg,/signupOpen:true/,'production: no open-sign-up setting ships');
+ assert.match(prodCfg,/signupOpen:true/,'production: the create-account form is part of the page (registration itself is switched on or off on the server)');assert.doesNotMatch(prodCfg,/signupOpen:false/,'production: no closed-form setting ships');
  assert.match(files.get('index.html').toString('utf8'),/id="cloud-invite-note" hidden>Accounts are currently by invitation\./,'production page carries the invitation note');
  assert.equal(require(path.join(root,'config.js')).ENVIRONMENTS.development.signupOpen,true,'development keeps account creation');
  // Cloudflare Pages response headers: exact content, HSTS scoped to this host only, no clash with the pages' own policy.
