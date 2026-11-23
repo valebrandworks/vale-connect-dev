@@ -26,6 +26,8 @@ let client=null,user=null,generation=0,mode='signin',busy=false;
 function accountRequest(){return user?{id:user.id,generation}:null}
 function current(request){return !!request&&user?.id===request.id&&generation===request.generation}
 const msg=(id,value)=>{const el=$(id);if(el)el.textContent=value};
+let stepUp=null;   // {factorId} while the authenticator code is being asked for during a password change
+const showStepUp=on=>{show('cloud-mfa-field',on);if($('cloud-mfa-code'))$('cloud-mfa-code').value='';if(!on)stepUp=null};
 const show=(id,visible)=>{const el=$(id);if(el)el.hidden=!visible};
 const redirect=()=>location.origin+location.pathname;
 
@@ -179,17 +181,29 @@ async function signOutOthers(){
   return res.status===204;
  }catch{return false}
 }
-function showPasswordForm(text){const ask=currentPasswordRequired&&!recoveryActive();show('cloud-current-field',ask);if($('cloud-current-password'))$('cloud-current-password').value='';$('cloud-new-password').hidden=false;msg('cloud-auth-status',text);document.querySelector?.('[data-tab="account"]')?.click();$('cloud-new-password-value').focus?.()}
+function showPasswordForm(text){showStepUp(false);const ask=currentPasswordRequired&&!recoveryActive();show('cloud-current-field',ask);if($('cloud-current-password'))$('cloud-current-password').value='';$('cloud-new-password').hidden=false;msg('cloud-auth-status',text);document.querySelector?.('[data-tab="account"]')?.click();$('cloud-new-password-value').focus?.()}
 $('cloud-change-password').addEventListener('click',()=>showPasswordForm('Enter your new password.'));
 $('cloud-new-password').addEventListener('submit',async e=>{
  e.preventDefault();if(!client)return;
  const password=$('cloud-new-password-value').value,ask=currentPasswordRequired&&!recoveryActive(),current=ask?($('cloud-current-password')?.value??''):'';
  show('cloud-current-field',ask);   // decided again now: the reset state may have ended since the form was opened
  const bad=core.checkNewPassword(password,$('cloud-new-password-confirm').value,{current,requireCurrent:ask});if(bad){msg('cloud-auth-status',bad);return}
+ if(stepUp){
+  const code=core.cleanAuthenticatorCode($('cloud-mfa-code')?.value);
+  const badCode=core.checkAuthenticatorCode(code);if(badCode){msg('cloud-auth-status',badCode);return}
+  const {error:mfaError}=await client.auth.mfa.challengeAndVerify({factorId:stepUp.factorId,code});
+  if($('cloud-mfa-code'))$('cloud-mfa-code').value='';
+  if(mfaError){msg('cloud-auth-status',core.message(mfaError,'mfa'));return}   // the typed passwords stay; try the code again
+  showStepUp(false);
+ }
  const {error}=await client.auth.updateUser(ask?{password,current_password:current}:{password});
+ if(error&&core.needsStepUp(error)&&!stepUp){
+  const {data:factorData}=await client.auth.mfa.listFactors();const factor=(factorData?.totp||[]).find(f=>!f.status||f.status==='verified');
+  if(factor){stepUp={factorId:factor.id};show('cloud-mfa-field',true);msg('cloud-auth-status',core.STEP_UP_ASK);$('cloud-mfa-code')?.focus?.();return}   // the typed passwords stay, so nothing is retyped and the recovery is not restarted
+ }
  for(const id of ['cloud-new-password-value','cloud-new-password-confirm','cloud-current-password'])if($(id))$(id).value='';
  if(error){msg('cloud-auth-status','Password not changed. '+core.message(error,'password'));return}
- $('cloud-new-password').hidden=true;endRecovery();
+ $('cloud-new-password').hidden=true;showStepUp(false);endRecovery();
  // Other devices and browsers are signed out, so a changed password also ends any session someone else may be holding.
  // Other devices: asked of the server directly, because supabase-js reports success even when the server answers 401, 403 or 404 to this request.
  // Only the server's "no content" answer (204) counts. Refresh tokens of the other sessions are revoked; an access token already issued keeps

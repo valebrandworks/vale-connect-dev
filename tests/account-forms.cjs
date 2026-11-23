@@ -36,7 +36,7 @@ assert.doesNotMatch(auth,/innerHTML|outerHTML|insertAdjacentHTML/,'no HTML injec
 assert.match(html,/<script src="auth-core\.js\?v=\d+"><\/script><script src="cloud-auth\.js\?v=\d+"><\/script>/,'rules load before the form');
 assert.doesNotMatch(html.slice(html.indexOf('id="cloud-auth"'),html.indexOf('id="cloud-new-password"')),/minlength="[0-9]"/,'the sign-in box no longer refuses older short passwords');
 assert.match(html,/id="cloud-new-password-value" type="password" autocomplete="new-password" minlength="10"/);
-for(const id of ['cloud-email','cloud-password','cloud-password-confirm','cloud-agree','cloud-current-password','cloud-new-password-value','cloud-new-password-confirm'])assert.match(html,new RegExp('<label[^>]*for="'+id+'"'),'labelled: '+id);
+for(const id of ['cloud-email','cloud-password','cloud-password-confirm','cloud-agree','cloud-current-password','cloud-mfa-code','cloud-new-password-value','cloud-new-password-confirm'])assert.match(html,new RegExp('<label[^>]*for="'+id+'"'),'labelled: '+id);
 assert.match(html,/id="cloud-auth-status" role="status" aria-live="polite"/);assert.match(html,/id="cloud-password-toggle" aria-pressed="false" aria-controls="cloud-password"/);
 
 // ---------- Behaviour, with a simulated page ----------
@@ -46,7 +46,7 @@ function page({turnstile=true,host='dev.valebrandworks.com',accountOpen=false,cl
  const els=new Map(),get=id=>{if(!els.has(id))els.set(id,new El(id,'input'));return els.get(id)};
  for(const id of ['cloud-password','cloud-password-confirm'])get(id).type='password';
  get('tab-account').hidden=!accountOpen;
- for(const id of ['cloud-signup','cloud-reset','cloud-resend','cloud-show-signin','cloud-password-hint','cloud-confirm-field','cloud-agree-field','cloud-new-password','cloud-invite-note','cloud-current-field'])get(id).hidden=true;
+ for(const id of ['cloud-signup','cloud-reset','cloud-resend','cloud-show-signin','cloud-password-hint','cloud-confirm-field','cloud-agree-field','cloud-new-password','cloud-invite-note','cloud-current-field','cloud-mfa-field'])get(id).hidden=true;
  const calls=[],answers={},events={},ts={renders:[],resets:0,render(el,o){this.renders.push({el:el.id,...o});return 'w'+this.renders.length},reset(){this.resets++}};
  const answer=name=>answers[name]?.shift()||{data:{},error:null};
  let authFn;
@@ -54,7 +54,8 @@ function page({turnstile=true,host='dev.valebrandworks.com',accountOpen=false,cl
  const client={auth:{getUser:async()=>({data:{user:null}}),getSession:async()=>({data:{session:net.session?{access_token:'tok-access-SYNTHETIC'}:null}}),onAuthStateChange:f=>authFn=f,
   signInWithPassword:async c=>{calls.push(['signIn',c]);return answer('signIn')},signUp:async c=>{calls.push(['signUp',c]);return answer('signUp')},
   resetPasswordForEmail:async(e,o)=>{calls.push(['reset',{email:e,...o}]);return answer('reset')},resend:async c=>{calls.push(['resend',c]);return answer('resend')},
-  updateUser:async u=>{calls.push(['update',u]);return answer('update')},signOut:async o=>{calls.push(['signOut',o]);return answer('signOut')}},rpc:async(n,a)=>{calls.push([n,a]);return {error:null}}};
+  updateUser:async u=>{calls.push(['update',u]);return answer('update')},signOut:async o=>{calls.push(['signOut',o]);return answer('signOut')},
+  mfa:{listFactors:async()=>{calls.push(['listFactors']);return answers.listFactors?.shift()||{data:{all:[],totp:[]},error:null}},challengeAndVerify:async c=>{calls.push(['mfaVerify',c]);return answer('mfaVerify')}}},rpc:async(n,a)=>{calls.push([n,a]);return {error:null}}};
  const window={supabase:{createClient:()=>client},addEventListener:(n,f)=>events[n]=f,dispatchEvent(){},ValeApp:{tab:t=>calls.push(['tab',t])},ValeCards:{removeAllImages:async()=>{}}};
  if(turnstile)window.turnstile=ts;
  const document={getElementById:get,createElement:t=>new El('',t),createTextNode:t=>({textContent:t}),head:new El('head'),querySelector:()=>null,addEventListener(){}};
@@ -179,8 +180,71 @@ const shown=(p,ids)=>Object.fromEntries(ids.map(id=>[id,!p.get(id).hidden]));
   assert.equal(r.get('cloud-current-field').hidden,true,'reset flow: no current-password field');
   await changeTo(r,{next:'a recovery passphrase'});same(r.calls.filter(c=>c[0]==='update').at(-1),['update',{password:'a recovery passphrase'}],'reset flow: only the new password is sent');
   // Reset state transitions (memory only, one user, ends on sign-out, other sign-in, successful change and expiry).
-  const fresh=async(opts={})=>{const x=page(opts);await settle();return x};
   const open=x=>{x.get('cloud-change-password').handlers.click();return !x.get('cloud-current-field').hidden};   // true = the field is asked for
+
+  // ----- Authenticator step-up when changing a password (an account with a verified authenticator app: Supabase answers 401 insufficient_aal until the code is entered) -----
+  {
+   const AAL={message:'AAL2 session is required to update email or password when MFA is enabled.',code:'insufficient_aal',status:401};
+   const factor={data:{all:[{id:'f1',factor_type:'totp',status:'verified'}],totp:[{id:'f1',factor_type:'totp',status:'verified'}]},error:null};
+   const upd=x=>x.calls.filter(c=>c[0]==='update'),codeBox=x=>!x.get('cloud-mfa-field').hidden;
+   // (1) A signed-in account with an authenticator: the first attempt is refused, the code box appears, the typed passwords stay.
+   const m=page();await settle();m.auth('SIGNED_IN',{id:'u1',email:'a@example.invalid'});await settle();
+   m.get('cloud-change-password').handlers.click();assert.equal(codeBox(m),false,'the code box is not shown until the server asks for it');
+   m.answers.update=[{error:AAL}];m.answers.listFactors=[factor];
+   await changeTo(m,{current:'right one 1234',next:'a brand new passphrase'});
+   assert.equal(m.status(),core.STEP_UP_ASK);assert.match(m.status(),/authenticator app.*6-digit code/);assert.equal(codeBox(m),true,'the code box is shown');
+   assert.equal(m.get('cloud-new-password-value').value+'|'+m.get('cloud-current-password').value,'a brand new passphrase|right one 1234','nothing has to be retyped');
+   assert.equal(upd(m).length,1);assert.ok(!m.calls.some(c=>c[0]==='signOut')&&!m.fetches.length,'nobody is signed out');assert.ok(!m.calls.some(c=>c[0]==='mfaVerify'),'no code sent yet');
+   // a code that is not six digits is refused before anything is sent
+   m.get('cloud-mfa-code').value='12 34';await m.get('cloud-new-password').handlers.submit({preventDefault(){}});assert.match(m.status(),/6-digit code/);assert.ok(!m.calls.some(c=>c[0]==='mfaVerify')&&upd(m).length===1);
+   m.get('cloud-mfa-code').value='';await m.get('cloud-new-password').handlers.submit({preventDefault(){}});assert.match(m.status(),/6-digit code/,'an empty code is refused');
+   // (2) A wrong code: said plainly, no password update, the box stays and nothing is retyped
+   m.answers.mfaVerify=[{error:{message:'Invalid TOTP code entered',code:'mfa_verification_failed',status:400}}];
+   m.get('cloud-mfa-code').value='111111';await m.get('cloud-new-password').handlers.submit({preventDefault(){}});
+   same(m.calls.filter(c=>c[0]==='mfaVerify').at(-1),['mfaVerify',{factorId:'f1',code:'111111'}],'the code is checked with Supabase for the verified factor');
+   assert.match(m.status(),/code wasn’t accepted/);assert.doesNotMatch(m.status(),/Invalid TOTP|mfa_verification/,'no raw server wording');
+   assert.equal(upd(m).length,1,'a wrong code never reaches the password update');assert.equal(codeBox(m),true,'the box stays for another try');assert.equal(m.get('cloud-new-password-value').value,'a brand new passphrase');assert.equal(m.get('cloud-mfa-code').value,'','the wrong code is emptied');
+   // (3) The right code (typed with a space, as authenticator apps show it): verified, then the SAME update is retried, current password included
+   m.answers.mfaVerify=[{data:{},error:null}];m.answers.update=[{}];
+   m.get('cloud-mfa-code').value='654 321';await m.get('cloud-new-password').handlers.submit({preventDefault(){}});
+   same(m.calls.filter(c=>c[0]==='mfaVerify').at(-1),['mfaVerify',{factorId:'f1',code:'654321'}]);
+   same(upd(m).at(-1),['update',{password:'a brand new passphrase',current_password:'right one 1234'}],'the current-password rule is kept for an ordinary change');
+   assert.equal(m.status(),core.OTHERS_SIGNED_OUT);assert.equal(codeBox(m),false,'the box is gone after success');
+   assert.equal(m.get('cloud-new-password-value').value+m.get('cloud-current-password').value+m.get('cloud-mfa-code').value,'','everything typed is emptied');
+   // (4) The form opened again starts without the code box.
+   m.get('cloud-change-password').handlers.click();assert.equal(codeBox(m),false);
+
+   // (5) Password recovery for an account with an authenticator: refused, code, then the update WITHOUT a current password; the recovery is not restarted.
+   const r=page();await settle();r.auth('PASSWORD_RECOVERY',{id:'u1',email:'a@example.invalid'});await settle();
+   r.answers.update=[{error:AAL}];r.answers.listFactors=[factor];await changeTo(r,{next:'a recovery passphrase'});
+   assert.equal(codeBox(r),true);assert.equal(r.status(),core.STEP_UP_ASK);assert.equal(r.get('cloud-current-field').hidden,true,'recovery: still no current-password field');
+   r.answers.mfaVerify=[{error:{message:'Invalid TOTP code entered',code:'mfa_verification_failed'}}];r.get('cloud-mfa-code').value='000000';await r.get('cloud-new-password').handlers.submit({preventDefault(){}});
+   assert.match(r.status(),/code wasn’t accepted/);assert.equal(upd(r).length,1);
+   r.answers.mfaVerify=[{data:{},error:null}];r.answers.update=[{}];r.get('cloud-mfa-code').value='246810';await r.get('cloud-new-password').handlers.submit({preventDefault(){}});
+   same(upd(r).at(-1),['update',{password:'a recovery passphrase'}],'recovery: only the new password is sent after the code');assert.equal(r.status(),core.OTHERS_SIGNED_OUT);
+   assert.equal(open(r),true,'after the recovery change, a normal change asks for the current password again');
+
+   // (6) An ordinary account (no authenticator): nothing changes, the authenticator calls are never made.
+   const o=page();await settle();o.auth('SIGNED_IN',{id:'u3',email:'c@example.invalid'});await settle();o.get('cloud-change-password').handlers.click();
+   o.answers.update=[{}];await changeTo(o,{current:'right one 1234'});
+   assert.equal(o.status(),core.OTHERS_SIGNED_OUT);assert.ok(!o.calls.some(c=>c[0]==='listFactors'||c[0]==='mfaVerify'),'no authenticator calls for an ordinary account');assert.equal(codeBox(o),false);
+   same(upd(o),[['update',{password:'a brand new passphrase',current_password:'right one 1234'}]]);
+   // (7) The server asks for it but no verified authenticator is found: a clear message, no code box, fields emptied (no loop).
+   const n=page();await settle();n.auth('SIGNED_IN',{id:'u4',email:'d@example.invalid'});await settle();n.get('cloud-change-password').handlers.click();
+   n.answers.update=[{error:AAL}];await changeTo(n,{current:'right one 1234'});
+   assert.equal(n.status(),'Password not changed. '+core.AAL2_REQUIRED);assert.equal(codeBox(n),false);assert.equal(n.get('cloud-new-password-value').value,'');assert.ok(!n.calls.some(c=>c[0]==='mfaVerify'));
+   // (8) The rules in auth-core.
+   for(const e of [{code:'insufficient_aal'},{error_code:'insufficient_aal'},{message:'AAL2 session is required to update email or password when MFA is enabled.'},{message:'aal2 session is required'}])assert.equal(core.needsStepUp(e),true);
+   for(const e of [null,{},{message:'Invalid login credentials',code:'invalid_credentials'},{message:'New password should be different from the old password.',code:'same_password'},{code:'current_password_required',message:'Current password required when setting new password.'}])assert.equal(core.needsStepUp(e),false);
+   for(const v of ['123456','123 456',' 123456 '])assert.equal(core.checkAuthenticatorCode(v),'');
+   for(const v of ['','12345','1234567','abcdef','12345a',null,undefined])assert.match(core.checkAuthenticatorCode(v),/6-digit code/);
+   assert.equal(core.cleanAuthenticatorCode('123 456'),'123456');
+   assert.match(core.message({message:'Invalid TOTP code entered',code:'mfa_verification_failed'},'mfa'),/code wasn’t accepted/);
+   assert.match(core.message({message:'too many requests',code:'over_request_rate_limit'},'mfa'),/Too many attempts/,'rate limits are still reported as such');
+   assert.equal(core.message({message:AAL.message,code:'insufficient_aal'},'password'),core.AAL2_REQUIRED);
+   assert.doesNotMatch(core.STEP_UP_ASK+core.AAL2_REQUIRED,/verified your (age|identity)|bypass|skip/i);
+  }
+  const fresh=async(opts={})=>{const x=page(opts);await settle();return x};
   {
    // after a successful change in the reset flow, the next change asks for the current password
    const a=await fresh();a.auth('PASSWORD_RECOVERY',{id:'u1',email:'a@example.invalid'});await settle();assert.equal(!a.get('cloud-current-field').hidden,false);

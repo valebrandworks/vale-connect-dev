@@ -48,6 +48,9 @@
   if(/captcha/.test(m+code))return 'The security check didn’t go through. Complete it again, then try again.';
   if(/rate limit|too many|seconds|over_request|over_email/.test(m+code))return 'Too many attempts. Please wait a few minutes and try again.';
   if(/failed to fetch|network|load failed|fetch/.test(m))return 'VALE Connect couldn’t reach its sign-in service. Check your connection and try again.';
+  // A password can only be changed from a session that has entered the authenticator code (Supabase: 401 insufficient_aal) when the account has a verified authenticator.
+  if(needsStepUp(error))return AAL2_REQUIRED;
+  if(context==='mfa'&&/mfa_verification_failed|mfa_challenge_expired|invalid.*(totp|code)|verification failed|expired/.test(m+code))return 'That code wasn’t accepted. Check your authenticator app and try again.';
   if(/signups? not allowed|signup.*disabled|signup_disabled/.test(m+code))return 'New accounts aren’t open yet. Please check back soon.';
   if(/email not confirmed|email_not_confirmed/.test(m+code))return 'Confirm your email address first. We can send the link again.';
   // Supabase uses the code weak_password for several reasons; the reasons (or the wording) tell them apart.
@@ -67,6 +70,12 @@
   if(context==='signup'&&/already|registered|exists/.test(m))return CHECK_EMAIL;
   return 'Something went wrong. Please try again.';
  }
+ // Authenticator step-up for a password change. The server decides (insufficient_aal); the page only asks for the code and verifies it with Supabase.
+ const STEP_UP_ASK='Your account uses an authenticator app. Enter the 6-digit code from it to confirm it’s you, then save your new password.';
+ const AAL2_REQUIRED='Your account uses an authenticator app, and this session has not entered a code yet. Sign in again, enter your authenticator code, then change your password.';
+ function needsStepUp(error){return String(error?.code||error?.error_code||'').toLowerCase()==='insufficient_aal'||/aal2 session is required/i.test(String(error?.message||error||''))}
+ const cleanAuthenticatorCode=value=>String(value??'').replace(/\s+/g,'');
+ function checkAuthenticatorCode(value){return /^\d{6}$/.test(cleanAuthenticatorCode(value))?'':'Enter the 6-digit code from your authenticator app.'}
  const CHECK_EMAIL='Check your email for a confirmation link, then come back and sign in.';
  // The server's limit is 72 BYTES (verified on development): 72 plain letters, or fewer when the password has accented or non-Latin characters.
  const TOO_LONG='That password is too long. Use 72 letters or numbers at most (fewer if it has accented or non-Latin characters).';
@@ -76,6 +85,6 @@
  const RESET_SENT='If that email has an account, a reset link is on its way. Check your inbox and spam folder. If nothing arrives in a few minutes, try again later.';
  const RESENT='If that email is waiting for confirmation, a new link is on its way.';
 
- const api={PASSWORD_MIN,PASSWORD_MAX_BYTES,TOO_LONG,OTHERS_SIGNED_OUT,OTHERS_NOT_SIGNED_OUT,EMAIL_TROUBLE,AGREEMENT_VERSION,PRIVACY_URL,TERMS_URL,CHECK_EMAIL,RESET_SENT,RESENT,siteKey,emailOk,agreement,checkSignIn,checkNewPassword,checkSignUp,message};
+ const api={PASSWORD_MIN,PASSWORD_MAX_BYTES,TOO_LONG,OTHERS_SIGNED_OUT,OTHERS_NOT_SIGNED_OUT,EMAIL_TROUBLE,AGREEMENT_VERSION,PRIVACY_URL,TERMS_URL,CHECK_EMAIL,RESET_SENT,RESENT,siteKey,emailOk,agreement,checkSignIn,checkNewPassword,checkSignUp,message,STEP_UP_ASK,AAL2_REQUIRED,needsStepUp,cleanAuthenticatorCode,checkAuthenticatorCode};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.ValeAuthCore=api;
 })(typeof window!=='undefined'?window:globalThis);
