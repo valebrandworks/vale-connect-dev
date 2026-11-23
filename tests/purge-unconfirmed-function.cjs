@@ -16,11 +16,11 @@ async function suite(fn, rebuild) {
   const db = await rebuild(root);
   try {
     await db.exec(`
-      INSERT INTO auth.users(id, email, created_at, email_confirmed_at, confirmed_at) VALUES
-       ('${ID(1)}', 'old1@example.invalid', now() - interval '12 days', NULL, NULL),
-       ('${ID(2)}', 'old2@example.invalid', now() - interval '40 days', NULL, NULL),
-       ('${ID(3)}', 'young@example.invalid', now() - interval '3 days', NULL, NULL),
-       ('${ID(4)}', 'confirmed@example.invalid', now() - interval '40 days', now() - interval '39 days', now() - interval '39 days');
+      INSERT INTO auth.users(id, email, created_at, email_confirmed_at) VALUES
+       ('${ID(1)}', 'old1@example.invalid', now() - interval '12 days', NULL),
+       ('${ID(2)}', 'old2@example.invalid', now() - interval '40 days', NULL),
+       ('${ID(3)}', 'young@example.invalid', now() - interval '3 days', NULL),
+       ('${ID(4)}', 'confirmed@example.invalid', now() - interval '40 days', now() - interval '39 days');
       INSERT INTO vale_private.platform_admins(user_id, note) VALUES ('${ID(4)}', 'admin');`);
     const calls = [], logs = []; let failDelete = false, dbFails = false, badShape = false, auditFail = null, afterList = null, recheckFails = false, wrongRecheck = false;
     const respond = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -116,9 +116,9 @@ async function suite(fn, rebuild) {
     const runs = async () => (await db.query("SELECT kind, candidates, deleted FROM vale_private.auth_maintenance_log ORDER BY id DESC LIMIT 2")).rows.reverse();
     await insertOld([5, 6, 7, 8]);
     afterList = async () => {
-      await db.exec(`UPDATE auth.users SET email_confirmed_at = now(), confirmed_at = now() WHERE id = '${ID(5)}'`);                     // confirmed
+      await db.exec(`UPDATE auth.users SET email_confirmed_at = now() WHERE id = '${ID(5)}'`);                     // confirmed
       await db.exec(`INSERT INTO public.public_cards(id, owner_id, slug, display_name, public_email, public_phone, published) VALUES (gen_random_uuid(), '${ID(6)}', 'late-card', 'Late', '', '', false)`);   // received data
-      await db.exec(`INSERT INTO auth.mfa_factors(user_id) VALUES ('${ID(7)}')`);                                                       // gained a second factor
+      await db.exec(`INSERT INTO auth.mfa_factors(id, user_id, friendly_name, factor_type, status, created_at, updated_at) VALUES (gen_random_uuid(), '${ID(7)}', 'test', 'totp', 'verified', now(), now())`);                                                       // gained a second factor
     };
     let d0 = deletesNow();
     r = await run(live, { body: { apply: true } }); j = await r.json();

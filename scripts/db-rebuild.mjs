@@ -11,11 +11,11 @@ const SUPABASE_STUB = `
  CREATE SCHEMA extensions; -- Supabase keeps extensions such as pgcrypto here.
  CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS;
  CREATE ROLE supabase_auth_admin NOLOGIN; -- the role Supabase Auth uses to call hook functions
- CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, email text, created_at timestamptz DEFAULT now(), email_confirmed_at timestamptz,
-  confirmed_at timestamptz, last_sign_in_at timestamptz, invited_at timestamptz, is_anonymous boolean DEFAULT false, is_sso_user boolean DEFAULT false,
+ CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, email text, created_at timestamptz, email_confirmed_at timestamptz, phone_confirmed_at timestamptz,
+  confirmed_at timestamptz GENERATED ALWAYS AS (LEAST(email_confirmed_at, phone_confirmed_at)) STORED, last_sign_in_at timestamptz, invited_at timestamptz, is_anonymous boolean DEFAULT false, is_sso_user boolean DEFAULT false,
   confirmation_sent_at timestamptz, recovery_sent_at timestamptz);
- CREATE TABLE auth.identities(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE, provider text NOT NULL DEFAULT 'email');
- CREATE TABLE auth.mfa_factors(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE, factor_type text DEFAULT 'totp', status text DEFAULT 'verified');
+ CREATE TABLE auth.identities(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE, provider text NOT NULL, provider_id text NOT NULL, identity_data jsonb NOT NULL);
+ CREATE TABLE auth.mfa_factors(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE, friendly_name text, factor_type text NOT NULL, status text NOT NULL, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL);
  CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claims',true)::json->>'sub','')::uuid $$;
  CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb,'{}'::jsonb) $$;
  GRANT USAGE ON SCHEMA public, auth, extensions TO anon, authenticated, service_role;
