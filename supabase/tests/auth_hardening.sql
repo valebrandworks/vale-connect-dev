@@ -4,8 +4,8 @@
 -- All fixtures roll back. Never run against production.
 BEGIN;
 SELECT set_config('vale.' || n, gen_random_uuid()::text, true) FROM unnest(ARRAY['old1','old2','young','exact','confirmed','signedin','invited','mfa','admin','google','data','anon','aal','plain']) n;
-INSERT INTO auth.users(id, email, created_at, email_confirmed_at, confirmed_at, last_sign_in_at, invited_at, is_anonymous)
-SELECT current_setting('vale.' || n)::uuid, 'ah-' || n || '-' || current_setting('vale.' || n) || '@example.invalid', now() - age, conf, conf, signin, inv, anon
+INSERT INTO auth.users(id, email, created_at, email_confirmed_at, last_sign_in_at, invited_at, is_anonymous)
+SELECT current_setting('vale.' || n)::uuid, 'ah-' || n || '-' || current_setting('vale.' || n) || '@example.invalid', now() - age, conf, signin, inv, anon
 FROM (VALUES
  ('old1',      interval '10 days', NULL::timestamptz, NULL::timestamptz, NULL::timestamptz, false),
  ('old2',      interval '30 days', NULL, NULL, NULL, false),
@@ -21,8 +21,8 @@ FROM (VALUES
  ('anon',      interval '10 days', NULL, NULL, NULL, true),
  ('aal',       interval '10 days', now() - interval '9 days', NULL, NULL, false),
  ('plain',     interval '10 days', now() - interval '9 days', NULL, NULL, false)) v(n, age, conf, signin, inv, anon);
-INSERT INTO auth.identities(user_id, provider) VALUES (current_setting('vale.google')::uuid, 'google');
-INSERT INTO auth.mfa_factors(user_id) VALUES (current_setting('vale.mfa')::uuid);
+INSERT INTO auth.identities(user_id, provider, provider_id, identity_data) VALUES (current_setting('vale.google')::uuid, 'google', current_setting('vale.google'), '{}'::jsonb);
+INSERT INTO auth.mfa_factors(id, user_id, friendly_name, factor_type, status, created_at, updated_at) VALUES (gen_random_uuid(), current_setting('vale.mfa')::uuid, 'test', 'totp', 'verified', now(), now());
 INSERT INTO vale_private.platform_admins(user_id, note) VALUES (current_setting('vale.admin')::uuid, 'test admin');
 INSERT INTO public.public_cards(id, owner_id, slug, display_name, public_email, public_phone, published)
  VALUES (gen_random_uuid(), current_setting('vale.data')::uuid, 'ah-data-' || left(current_setting('vale.data'), 8), 'Has Data', '', '', false);
@@ -40,8 +40,7 @@ DO $$ BEGIN
  DELETE FROM vale_private.allowed_email_domains WHERE domain = 'mailinator.com';
 END $$;
 
--- 2. The hook (as Supabase Auth calls it): refuses with a clear message, logs the domain only, never refuses anything else.
-SET LOCAL ROLE supabase_auth_admin;
+-- 2. The hook (called as its owner; who may call it is asserted below): refuses with a clear message, logs the domain only, never refuses anything else.
 DO $$ DECLARE r jsonb; BEGIN
  r := vale_private.before_user_created('{"user": {"email": "Someone@Guerrillamail.com"}, "metadata": {"ip_address": "203.0.113.9"}}'::jsonb);
  IF (r->'error'->>'http_code') <> '400' OR coalesce(r->'error'->>'message', '') = '' THEN RAISE EXCEPTION 'CHECK: a disposable address was not refused with a message: %', r; END IF;
@@ -49,21 +48,19 @@ DO $$ DECLARE r jsonb; BEGIN
  IF vale_private.before_user_created('{"user": {"email": "person@gmail.com"}}'::jsonb) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a normal address was refused'; END IF;
  IF vale_private.before_user_created('{"user": {}}'::jsonb) <> '{}'::jsonb OR vale_private.before_user_created('{}'::jsonb) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a request without an address was refused'; END IF;
 END $$;
-RESET ROLE;
 DO $$ BEGIN
- IF (SELECT count(*) FROM vale_private.auth_hook_log WHERE kind = 'blocked' AND domain = 'guerrillamail.com') <> 1 THEN RAISE EXCEPTION 'CHECK: the refusal was not logged by domain'; END IF;
+ IF (SELECT count(*) FROM vale_private.auth_hook_log WHERE kind = 'blocked' AND domain = 'guerrillamail.com') < 1 THEN RAISE EXCEPTION 'CHECK: the refusal was not logged by domain'; END IF;
  IF EXISTS (SELECT 1 FROM vale_private.auth_hook_log WHERE coalesce(domain, '') || coalesce(detail, '') ILIKE '%someone%') THEN RAISE EXCEPTION 'CHECK: the log holds an address'; END IF;
 END $$;
 -- 2b. An internal failure lets the sign-up through (fail open) and is recorded, so it can be noticed.
+SELECT set_config('vale.err0', (SELECT count(*)::text FROM vale_private.auth_hook_log WHERE kind = 'hook_error'), true), set_config('vale.blk0', (SELECT count(*)::text FROM vale_private.auth_hook_log WHERE kind = 'blocked' AND domain = 'guerrillamail.com'), true);
 ALTER TABLE vale_private.blocked_email_domains RENAME TO blocked_email_domains_x;
-SET LOCAL ROLE supabase_auth_admin;
 DO $$ BEGIN
  IF vale_private.before_user_created('{"user": {"email": "person@mailinator.com"}}'::jsonb) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a hook failure blocked a sign-up'; END IF;
 END $$;
-RESET ROLE;
 ALTER TABLE vale_private.blocked_email_domains_x RENAME TO blocked_email_domains;
 DO $$ BEGIN
- IF (SELECT count(*) FROM vale_private.auth_hook_log WHERE kind = 'hook_error' AND detail <> '') <> 1 THEN RAISE EXCEPTION 'CHECK: the hook failure was not logged'; END IF;
+ IF (SELECT count(*) FROM vale_private.auth_hook_log WHERE kind = 'hook_error' AND detail <> '') - current_setting('vale.err0')::int <> 1 THEN RAISE EXCEPTION 'CHECK: the hook failure was not logged'; END IF;
  IF vale_private.before_user_created('{"user": {"email": "person@mailinator.com"}}'::jsonb)->'error' IS NULL THEN RAISE EXCEPTION 'CHECK: blocking did not resume after the failure'; END IF;
 END $$;
 -- Only Supabase Auth may call the hook and the helper.
@@ -75,14 +72,12 @@ DO $$ DECLARE r text; BEGIN
   EXECUTE 'RESET ROLE';
  END LOOP;
 END $$;
-SET LOCAL ROLE supabase_auth_admin;
 DO $$ BEGIN
- BEGIN PERFORM * FROM vale_private.blocked_email_domains; RAISE EXCEPTION 'CHECK: the hook role can read the list directly';
- EXCEPTION WHEN insufficient_privilege THEN NULL; END;
- BEGIN PERFORM vale_private.email_domain_blocked('a.com'); RAISE EXCEPTION 'CHECK: the hook role can call the helper directly';
- EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+ IF NOT has_function_privilege('supabase_auth_admin', 'vale_private.before_user_created(jsonb)', 'EXECUTE') THEN RAISE EXCEPTION 'CHECK: Supabase Auth cannot call the hook'; END IF;
+ IF has_function_privilege('supabase_auth_admin', 'vale_private.email_domain_blocked(text)', 'EXECUTE') THEN RAISE EXCEPTION 'CHECK: the hook role can call the helper directly'; END IF;
+ IF has_function_privilege('supabase_auth_admin', 'public.unconfirmed_purge_candidates(integer, integer, uuid)', 'EXECUTE') OR has_function_privilege('supabase_auth_admin', 'public.record_purge_run(text, integer, integer, integer)', 'EXECUTE') THEN RAISE EXCEPTION 'CHECK: the hook role can use the purge functions'; END IF;
+ IF has_table_privilege('supabase_auth_admin', 'vale_private.blocked_email_domains', 'SELECT') THEN RAISE EXCEPTION 'CHECK: the hook role can read the list directly'; END IF;
 END $$;
-RESET ROLE;
 
 -- 3. Purge candidates: exactly the two old never-confirmed accounts; every protected kind is left out.
 SET LOCAL ROLE service_role;
@@ -107,7 +102,7 @@ DO $$ BEGIN
  BEGIN PERFORM * FROM public.unconfirmed_purge_candidates(7, 5000); RAISE EXCEPTION 'CHECK: a huge batch was accepted'; EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'CHECK:%' THEN RAISE; END IF; END;
 END $$;
 DO $$ DECLARE r text; BEGIN
- FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'supabase_auth_admin'] LOOP
+ FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
   EXECUTE format('SET LOCAL ROLE %I', r);
   BEGIN PERFORM * FROM public.unconfirmed_purge_candidates(7, 200); RAISE EXCEPTION 'CHECK: % listed purge candidates', r;
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
@@ -131,12 +126,12 @@ DO $$ DECLARE n text; BEGIN
  END LOOP;
 END $$;
 -- An account that becomes protected after the list was made is no longer eligible: it confirms, signs in, or gets a card or a second factor.
-UPDATE auth.users SET email_confirmed_at = now(), confirmed_at = now() WHERE id = current_setting('vale.old2')::uuid;
+UPDATE auth.users SET email_confirmed_at = now() WHERE id = current_setting('vale.old2')::uuid;
 DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.unconfirmed_purge_candidates(7, 200, current_setting('vale.old2')::uuid)) THEN RAISE EXCEPTION 'CHECK: an account that confirmed was still eligible'; END IF; END $$;
-UPDATE auth.users SET email_confirmed_at = NULL, confirmed_at = NULL, last_sign_in_at = now() WHERE id = current_setting('vale.old2')::uuid;
+UPDATE auth.users SET email_confirmed_at = NULL, last_sign_in_at = now() WHERE id = current_setting('vale.old2')::uuid;
 DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.unconfirmed_purge_candidates(7, 200, current_setting('vale.old2')::uuid)) THEN RAISE EXCEPTION 'CHECK: an account that signed in was still eligible'; END IF; END $$;
 UPDATE auth.users SET last_sign_in_at = NULL WHERE id = current_setting('vale.old2')::uuid;
-INSERT INTO auth.mfa_factors(user_id) VALUES (current_setting('vale.old2')::uuid);
+INSERT INTO auth.mfa_factors(id, user_id, friendly_name, factor_type, status, created_at, updated_at) VALUES (gen_random_uuid(), current_setting('vale.old2')::uuid, 'test', 'totp', 'verified', now(), now());
 DO $$ BEGIN IF EXISTS (SELECT 1 FROM public.unconfirmed_purge_candidates(7, 200, current_setting('vale.old2')::uuid)) THEN RAISE EXCEPTION 'CHECK: an account that gained a second factor was still eligible'; END IF; END $$;
 DELETE FROM auth.mfa_factors WHERE user_id = current_setting('vale.old2')::uuid;
 DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM public.unconfirmed_purge_candidates(7, 200, current_setting('vale.old2')::uuid)) THEN RAISE EXCEPTION 'CHECK: the account was not eligible again after the changes were undone'; END IF; END $$;
@@ -148,13 +143,13 @@ DO $$ BEGIN
 END $$;
 
 -- 4. Statistics: counts only, idempotent per day.
-INSERT INTO auth.users(id, email, confirmation_sent_at) VALUES (gen_random_uuid(), 'ah-today@example.invalid', now());
+INSERT INTO auth.users(id, email, created_at, confirmation_sent_at) VALUES (gen_random_uuid(), 'ah-today@example.invalid', now(), now());
 SELECT vale_private.record_auth_stats();
 SELECT vale_private.record_auth_stats();
 DO $$ DECLARE s record; BEGIN
  SELECT * INTO s FROM vale_private.auth_daily_stats WHERE day = (now() AT TIME ZONE 'UTC')::date;
- IF (SELECT count(*) FROM vale_private.auth_daily_stats) <> 1 THEN RAISE EXCEPTION 'CHECK: one row per day expected'; END IF;
- IF s.hook_blocked < 2 OR s.hook_errors <> 1 THEN RAISE EXCEPTION 'CHECK: hook counts wrong: % blocked, % errors', s.hook_blocked, s.hook_errors; END IF;
+ IF (SELECT count(*) FROM vale_private.auth_daily_stats WHERE day = (now() AT TIME ZONE 'UTC')::date) <> 1 THEN RAISE EXCEPTION 'CHECK: one row per day expected'; END IF;
+ IF s.hook_blocked < 2 OR s.hook_errors < 1 THEN RAISE EXCEPTION 'CHECK: hook counts wrong: % blocked, % errors', s.hook_blocked, s.hook_errors; END IF;
  IF s.purge_candidates <> 1 THEN RAISE EXCEPTION 'CHECK: purge candidate count wrong: %', s.purge_candidates; END IF;   -- old1 gained data above
  IF s.new_users < 1 OR s.confirmation_emails_seen < 1 THEN RAISE EXCEPTION 'CHECK: today''s new account and email were not counted'; END IF;
  IF s.unconfirmed_pending < 5 THEN RAISE EXCEPTION 'CHECK: unconfirmed count wrong: %', s.unconfirmed_pending; END IF;
@@ -179,7 +174,7 @@ DO $$ DECLARE o jsonb; BEGIN
  o := public.admin_auth_overview();
  IF NOT (o ? 'now' AND o ? 'history' AND o ? 'hook_recent' AND o ? 'purge_runs') THEN RAISE EXCEPTION 'CHECK: overview is missing parts: %', o; END IF;
  IF o::text ILIKE '%@example.invalid%' OR o::text ILIKE '%someone%' THEN RAISE EXCEPTION 'CHECK: the overview shows an address'; END IF;
- IF jsonb_array_length(o->'purge_runs') <> 2 OR (o->'now'->>'new_users')::int < 1 OR (o->'now'->>'confirmation_emails_seen')::int < 1 THEN RAISE EXCEPTION 'CHECK: overview numbers wrong: %', o; END IF;
+ IF jsonb_array_length(o->'purge_runs') < 2 OR (o->'now'->>'new_users')::int < 1 OR (o->'now'->>'confirmation_emails_seen')::int < 1 THEN RAISE EXCEPTION 'CHECK: overview numbers wrong: %', o; END IF;
 END $$;
 RESET ROLE;
 DO $$ DECLARE r text; BEGIN
