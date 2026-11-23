@@ -147,7 +147,7 @@ const shown=(p,ids)=>Object.fromEntries(ids.map(id=>[id,!p.get(id).hidden]));
  // A new password follows the server's minimum. (Development asks for the current password first: see below.)
  p.get('cloud-current-password').value='old password 123';p.get('cloud-new-password-value').value='123456789';p.get('cloud-new-password-confirm').value='123456789';await p.get('cloud-new-password').handlers.submit({preventDefault(){}});assert.match(p.status(),/at least 10/);assert.ok(!p.calls.some(c=>c[0]==='update'));
 
- // Changing a password (R11). Development asks for the current password (config.js requireCurrentPassword); production does not yet.
+ // Changing a password (R11). Development and production ask for the current password (config.js requireCurrentPassword); the reset-link flow does not.
  {
   const changeTo=async(q,{current,next='a brand new passphrase',confirm=next})=>{if(current!==undefined)q.get('cloud-current-password').value=current;q.get('cloud-new-password-value').value=next;q.get('cloud-new-password-confirm').value=confirm;await q.get('cloud-new-password').handlers.submit({preventDefault(){}});await settle()};
   const q=page();await settle();q.auth('SIGNED_IN',{id:'u1',email:'a@example.invalid'});await settle();
@@ -212,10 +212,10 @@ const shown=(p,ids)=>Object.fromEntries(ids.map(id=>[id,!p.get(id).hidden]));
    h2.get('cloud-new-password-value').value='a signed out passphrase';h2.get('cloud-new-password-confirm').value='a signed out passphrase';await h2.get('cloud-new-password').handlers.submit({preventDefault(){}});await settle();
    assert.ok(!h2.calls.some(x=>x[0]==='update'),'no password change is sent once signed out');
   }
-  // Production: not asked until the server setting is on and verified.
+  // Production: asked, like development (the server setting goes live together with this page setting).
   const pr=page({host:'connect.valebrandworks.com'});await settle();pr.auth('SIGNED_IN',{id:'u1',email:'a@example.invalid'});await settle();pr.get('cloud-change-password').handlers.click();
-  assert.equal(pr.get('cloud-current-field').hidden,true,'production: no current-password field yet');
-  await changeTo(pr,{next:'a production passphrase'});same(pr.calls.filter(c=>c[0]==='update').at(-1),['update',{password:'a production passphrase'}]);
+  assert.equal(pr.get('cloud-current-field').hidden,false,'production: the current password is asked for');
+  await changeTo(pr,{current:'old production pw 1',next:'a production passphrase'});same(pr.calls.filter(c=>c[0]==='update').at(-1),['update',{password:'a production passphrase',current_password:'old production pw 1'}],'production sends the current password');
   // Messages (R11): sign-up trouble is told plainly; a blocked provider, email trouble and weak/short are told apart.
   const mm=(e,c)=>core.message(e,c);
   assert.match(mm({message:'Error sending confirmation email',code:'unexpected_failure'},'signup'),/couldn’t send the email/);
