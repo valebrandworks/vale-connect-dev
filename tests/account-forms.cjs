@@ -298,6 +298,7 @@ const shown=(p,ids)=>Object.fromEntries(ids.map(id=>[id,!p.get(id).hidden]));
   const mm=(e,c)=>core.message(e,c);
   assert.match(mm({message:'Error sending confirmation email',code:'unexpected_failure'},'signup'),/couldn’t send the email/);
   assert.match(mm({message:"That email provider isn't supported for new accounts. Please use a different email address."},'signup'),/provider isn’t supported/);
+  assert.match(mm({message:'Please confirm you are 18 or older, live in the United States, and agree to the Terms of Service and Privacy Policy to create an account.'},'signup'),/Tick the box to confirm you’re 18 or older, live in the United States/,'a server refusal of a sign-up without the acknowledgement reads plainly');
   assert.equal(mm({message:'Error sending recovery email'},'reset'),'Something went wrong. Please try again.','reset never reveals an email problem that only exists for real accounts');
   assert.match(core.RESET_SENT,/try again later/);
   // The server's real answers for the current-password rule and the limits (recorded from development, 2026-11-22).

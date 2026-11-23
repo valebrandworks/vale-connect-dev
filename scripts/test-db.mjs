@@ -10,8 +10,8 @@ import { rebuild } from './db-rebuild.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const sql = rel => fs.readFileSync(path.join(repo, rel), 'utf8');
-const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections', 'card_reports', 'admin_get_report', 'lift_restriction', 'global_rate_limits', 'auth_hardening'].map(name => `supabase/tests/${name}.sql`);
-const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED, REPORTS, GET_REPORT, LIFT, GLOBAL, AUTH] = TESTS;
+const TESTS = ['connections_rls', 'profiles_rls', 'public_cards_rls', 'multiple_cards_rls', 'rls_event_trigger_permissions', 'card_and_limit_rules', 'deletion_and_usage', 'relationship_details', 'plan_features', 'card_images', 'reciprocal_sharing', 'sharing_indexes', 'share_back_settings', 'share_contact_keys', 'unlimited_connections', 'card_reports', 'admin_get_report', 'lift_restriction', 'global_rate_limits', 'auth_hardening', 'signup_acknowledgement'].map(name => `supabase/tests/${name}.sql`);
+const [CONNECTIONS, PROFILES, CARDS, MULTI, , RULES, DELETION, , FEATURES, IMAGES, SHARING, SHARING_INDEXES, SHARE_BACK, CONTACT_KEYS, UNLIMITED, REPORTS, GET_REPORT, LIFT, GLOBAL, AUTH, ACK] = TESTS;
 
 let failures = 0;
 const report = (ok, label) => { console.log((ok ? 'pass  ' : 'FAIL  ') + label); if (!ok) failures++; };
@@ -58,6 +58,9 @@ const recordShare = sharingSql.slice(shareStart, shareEnd).replace(/^CREATE FUNC
 const withoutRule = (find, replace = '') => { if (!recordShare.includes(find)) throw new Error('Sharing rule not found: ' + find); return recordShare.replace(find, replace); };
 // Report functions with one rule changed, taken from the reports migration.
 // Global rate limits: the migration, its rollback (keeps data) and the optional cleanup (removes the kept leftovers).
+const ACK_UP = 'supabase/migrations/20261124000000_require_signup_acknowledgement.sql', ACK_DOWN = 'supabase/rollback/20261124000000_require_signup_acknowledgement.down.sql';
+// The hook as the acknowledgement migration defines it, with one rule changed (to prove the acknowledgement tests notice).
+const ackHook = (find, replace = '') => { const t = sql(ACK_UP).replace(/\r\n/g, '\n'), a = t.indexOf('CREATE OR REPLACE FUNCTION vale_private.before_user_created('), b = t.indexOf('\nEND $$;', a) + 8; const body = t.slice(a, b); if (!body.includes(find)) throw new Error('Acknowledgement rule not found: ' + find); return body.replace(find, replace); };
 const AH_UP = 'supabase/migrations/20261123000000_add_auth_hardening.sql', AH_DOWN = 'supabase/rollback/20261123000000_add_auth_hardening.down.sql', AH_CLEAN = 'supabase/rollback/20261123000000_add_auth_hardening.cleanup.sql';
 const GL_UP = 'supabase/migrations/20261122010000_add_global_rate_limits.sql', GL_DOWN = 'supabase/rollback/20261122010000_add_global_rate_limits.down.sql', GL_CLEAN = 'supabase/rollback/20261122010000_add_global_rate_limits.cleanup.sql';
 // submit_card_report from the global-limits migration, with one rule changed (to prove the global tests notice).
@@ -214,6 +217,14 @@ const brokenRules = [
   ['global: the lock helper is callable by the server role', GLOBAL, 'GRANT EXECUTE ON FUNCTION vale_private.try_lock(text) TO service_role'],
   ['auth: block list ignored', AUTH, 'CREATE OR REPLACE FUNCTION vale_private.email_domain_blocked(p_domain text) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$'],
   ['auth: allow list ignored', AUTH, 'CREATE OR REPLACE FUNCTION vale_private.email_domain_blocked(p_domain text) RETURNS boolean LANGUAGE sql AS $$ SELECT EXISTS (SELECT 1 FROM vale_private.blocked_email_domains b WHERE b.domain = lower(p_domain)) $$'],
+  ['ack: no check at all', ACK, ackHook("IF jsonb_typeof(meta->'agreement_version')", "IF false AND jsonb_typeof(meta->'agreement_version')")],
+  ['ack: version ignored', ACK, ackHook("jsonb_typeof(meta->'agreement_version') IS DISTINCT FROM 'string' OR NOT ((meta->>'agreement_version') = ANY (accepted_versions))", 'false')],
+  ['ack: age confirmation ignored', ACK, ackHook("OR meta->'age_18_confirmed' IS DISTINCT FROM 'true'::jsonb")],
+  ['ack: residency confirmation ignored', ACK, ackHook("OR meta->'us_resident_confirmed' IS DISTINCT FROM 'true'::jsonb")],
+  ['ack: terms acceptance ignored', ACK, ackHook("OR meta->'agreement_terms' IS DISTINCT FROM 'true'::jsonb")],
+  ['ack: the text "true" counts as true', ACK, ackHook("meta->'age_18_confirmed' IS DISTINCT FROM 'true'::jsonb", "meta->>'age_18_confirmed' IS DISTINCT FROM 'true'")],
+  ['ack: blocked providers checked after the acknowledgement', ACK, ackHook("IF dom <> '' AND vale_private.email_domain_blocked(dom) THEN", "IF false THEN")],
+  ['ack: server role can call the hook', ACK, 'GRANT EXECUTE ON FUNCTION vale_private.before_user_created(jsonb) TO service_role'],
   ['auth: server role can call the hook', AUTH, 'GRANT EXECUTE ON FUNCTION vale_private.before_user_created(jsonb) TO service_role'],
   ['auth: anyone can list purge candidates', AUTH, 'GRANT EXECUTE ON FUNCTION public.unconfirmed_purge_candidates(integer, integer, uuid) TO authenticated'],
   ['auth: block list readable by the server role', AUTH, 'GRANT SELECT ON vale_private.blocked_email_domains TO service_role'],
@@ -359,8 +370,25 @@ await ahDb.exec(sql(AH_CLEAN));
 report(!(await snapshotOf(ahDb)).tables.some(t => /blocked_email_domains|allowed_email_domains|auth_hook_log|auth_maintenance_log|auth_daily_stats/.test(t.name)), 'auth hardening cleanup: removes only the new tables');
 report(await count(ahDb, 'public.public_cards') === 0 && await count(ahDb, 'auth.users') === 0, 'auth hardening cleanup: touches no accounts or cards');
 await ahDb.exec(sql(AH_UP));
+await ahDb.exec(sql(ACK_UP));
 report(noPosition(await snapshotOf(ahDb)) === noPosition(ahBefore), 'auth hardening: re-applying after rollback and cleanup restores the same structure');
 await ahDb.close();
+
+// Sign-up acknowledgement: the rollback puts back exactly the hook of the auth hardening migration (nothing else changes) and re-applying restores the same structure.
+const ackDb = await rebuild(repo), ackOld = await rebuild(repo);
+const ackBefore = await snapshotOf(ackDb);
+await ackDb.exec(sql(ACK_DOWN));
+const hookDef = async database => (await database.query(`SELECT pg_get_functiondef('vale_private.before_user_created(jsonb)'::regprocedure) AS d`)).rows[0].d;
+await ackOld.exec(sql(ACK_DOWN));
+report(/accepted_versions/.test(await hookDef(await (async () => { const d = await rebuild(repo); return d; })())) && !/accepted_versions/.test(await hookDef(ackDb)), 'acknowledgement rollback: removes the acknowledgement rule from the hook');
+const ackPrev = await rebuild(repo);
+await ackPrev.exec(sql(AH_DOWN)); await ackPrev.exec(sql(AH_CLEAN)); await ackPrev.exec(sql(AH_UP));
+report(await hookDef(ackDb) === await hookDef(ackPrev), 'acknowledgement rollback: puts back exactly the hook of the auth hardening migration');
+const withoutHook = snap => JSON.stringify({ ...snap, functions: snap.functions.filter(fn => !/before_user_created/.test(fn.signature)) });
+report(withoutHook(await snapshotOf(ackDb)) === withoutHook(ackBefore), 'acknowledgement rollback: changes nothing else');
+await ackDb.exec(sql(ACK_UP));
+report(noPosition(await snapshotOf(ackDb)) === noPosition(ackBefore), 'acknowledgement: re-applying after rollback restores the same structure');
+await ackDb.close(); await ackOld.close(); await ackPrev.close();
 
 // Lifting a restriction: the rollback puts back exactly the stage A function, and re-applying restores the same structure.
 const liftDb = await rebuild(repo), stageA = await rebuild(repo);

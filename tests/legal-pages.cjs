@@ -34,7 +34,14 @@ assert.match(privacy, /stored in our database in the United States/);assert.matc
 assert.doesNotMatch(privacy, /stored and processed in the United States|sets no cookies|uses no cookies|no cookies, analytics or tracking/i, 'no absolute claims about processing location or cookies');
 assert.match(privacy, /does not set advertising or tracking cookies and has no advertising or analytics services/);
 assert.match(privacy, /may use cookies or similar technologies for their own security and operation/, 'third-party security technologies are not promised away');
-assert.match(privacy, /every day/);assert.match(privacy, /whenever sharing is used or you open your notifications/, 'how the sharing cleanup really runs');
+assert.match(privacy, /every day/);
+assert.match(privacy, /so these records can remain longer than the periods shown. If nothing triggers that cleanup, a record can stay for a long time after its period ends/, 'user-triggered cleanup can leave records past their period, possibly for a long time');
+assert.match(privacy, /the periods are targets for removal, not a promise that a record disappears when its period ends/);
+assert.match(privacy, /Scrambled codes for sharing \| 48 hours \(removed only when cleanup is next triggered/);assert.match(privacy, /Notifications \| 90 days[^|]*\(removed only when cleanup is triggered/);
+assert.doesNotMatch(privacy, /very quiet day|a little longer|shortly after|removed by the next sharing cleanup/i, 'nothing implies prompt removal of user-triggered records');
+assert.match(privacy, /we record what you confirmed; we don.t check your age or location/);assert.match(privacy, /we don.t verify your age/, 'the age and residency confirmations are not described as verification');
+assert.doesNotMatch(terms + privacy, /we (verify|have verified|confirm) (your )?(age|location|residency|consent)/i, 'no claim of verifying age, location or consent');
+assert.match(privacy, /whenever sharing is used or you open your notifications/, 'how the sharing cleanup really runs');
 assert.match(privacy, /Daily backups kept for 7 days/);assert.match(privacy, /at least 14 days/);assert.match(privacy, /privacy@valebrandworks\.com/);
 assert.match(privacy, /18 or older/);assert.match(privacy, /United States/);
 assert.match(privacy, /Indiana.s Consumer Data Protection Act, may also give you these rights/, 'voluntary rights, with the law named as a possibility, not a claim');
@@ -66,4 +73,9 @@ assert.match(index, /id="cloud-agree-text">I.m 18 or older and live in the Unite
 assert.match(read('p.html'), /<a href="terms\.html">Terms<\/a> · <a href="privacy\.html">Privacy<\/a>/, 'public card pages link both');
 assert.match(read('report.html'), /<a href="terms\.html">Terms<\/a> · <a href="privacy\.html">Privacy<\/a>/, 'the report page links both');
 assert.doesNotMatch(read('sw.js'), /terms\.html|privacy\.html/, 'nothing to precache: the pages load from the network like the rest of the site');
+// ---------- The server-side acknowledgement check accepts exactly the version the page sends ----------
+const ackDb = read('supabase/migrations/20261124000000_require_signup_acknowledgement.sql'), core = require('../auth-core.js');
+assert.match(ackDb, new RegExp("accepted_versions text\\[\\] := ARRAY\\['" + core.AGREEMENT_VERSION + "'\\]"), 'the hook accepts the agreement version the sign-up page sends');
+for (const key of ['agreement_terms', 'age_18_confirmed', 'us_resident_confirmed']) assert.ok(ackDb.includes("meta->'" + key + "' IS DISTINCT FROM 'true'::jsonb"), 'the hook requires ' + key);
+assert.match(read('cloud-auth.js'), /agreement_version:agreement\.version,agreement_terms:agreement\.terms,age_18_confirmed:agreement\.age18,us_resident_confirmed:agreement\.usResident/, 'the page sends exactly the fields the hook checks');
 console.log('PASS: legal pages (no placeholders or review flags; approved Terms decisions preserved; no copyright-agent or renewed-acceptance claim; privacy statements accurate about processing, cookies and cleanup; retention periods equal the database files; both documents linked before sign-up)');

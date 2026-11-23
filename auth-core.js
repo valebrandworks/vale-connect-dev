@@ -65,6 +65,7 @@
   if(/reauthentication_needed|reauthentication/.test(m+code))return 'For your security, sign out and sign in again, then change your password.';
   if(context==='password'&&/invalid.*(credential|password)|incorrect|current password|not valid|wrong/.test(m+code))return 'Your current password wasn’t accepted. Check it and try again.';
   if(code==='weak_password'||/weak/.test(m))return 'Choose a stronger password.';
+  if(context==='signup'&&/18 or older.*united states.*terms of service/.test(m))return 'Tick the box to confirm you’re 18 or older, live in the United States, and agree to the Terms of Service and Privacy Policy.';   // the server refused a sign-up that skipped the acknowledgement (e.g. an old cached page)
   if(context==='signup'&&/isn['’]t supported for new accounts|email provider/.test(m))return 'That email provider isn’t supported for new accounts. Please use a different email address.';
   if((context==='signup'||context==='resend')&&/error sending|sending (confirmation|recovery|email)|unexpected_failure|smtp/.test(m+code))return EMAIL_TROUBLE;
   if(context==='signin'&&/invalid login|invalid credentials|invalid_credentials/.test(m+code))return 'That email and password don’t match. Check them and try again, or reset your password.';
