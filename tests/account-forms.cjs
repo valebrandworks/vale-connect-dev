@@ -233,6 +233,20 @@ const shown=(p,ids)=>Object.fromEntries(ids.map(id=>[id,!p.get(id).hidden]));
    const n=page();await settle();n.auth('SIGNED_IN',{id:'u4',email:'d@example.invalid'});await settle();n.get('cloud-change-password').handlers.click();
    n.answers.update=[{error:AAL}];await changeTo(n,{current:'right one 1234'});
    assert.equal(n.status(),'Password not changed. '+core.AAL2_REQUIRED);assert.equal(codeBox(n),false);assert.equal(n.get('cloud-new-password-value').value,'');assert.ok(!n.calls.some(c=>c[0]==='mfaVerify'));
+   // (7b) Only an explicitly verified factor is used: unverified entries, and entries without a status, are never selected.
+   {
+    const noneVerified=[{id:'u1',factor_type:'totp',status:'unverified'},{id:'n1',factor_type:'totp'},{id:'x1',factor_type:'totp',status:'something_else'}];
+    const w=page();await settle();w.auth('SIGNED_IN',{id:'u5',email:'e@example.invalid'});await settle();w.get('cloud-change-password').handlers.click();
+    w.answers.update=[{error:AAL}];w.answers.listFactors=[{data:{all:noneVerified,totp:noneVerified},error:null}];await changeTo(w,{current:'right one 1234'});
+    assert.equal(codeBox(w),false,'no code box for unverified or status-less factors');assert.equal(w.status(),'Password not changed. '+core.AAL2_REQUIRED);
+    assert.ok(!w.calls.some(c=>c[0]==='mfaVerify'),'an unverified factor is never challenged');
+    // a verified factor listed after unverified ones is the one chosen
+    const v=page();await settle();v.auth('SIGNED_IN',{id:'u6',email:'f@example.invalid'});await settle();v.get('cloud-change-password').handlers.click();
+    const mixed=[...noneVerified,{id:'ok1',factor_type:'totp',status:'verified'}];
+    v.answers.update=[{error:AAL}];v.answers.listFactors=[{data:{all:mixed,totp:mixed},error:null}];await changeTo(v,{current:'right one 1234'});
+    assert.equal(codeBox(v),true);v.answers.mfaVerify=[{data:{},error:null}];v.answers.update=[{}];v.get('cloud-mfa-code').value='135790';await v.get('cloud-new-password').handlers.submit({preventDefault(){}});
+    same(v.calls.filter(c=>c[0]==='mfaVerify').at(-1),['mfaVerify',{factorId:'ok1',code:'135790'}],'the verified factor, not an unverified one, is challenged');
+   }
    // (8) The rules in auth-core.
    for(const e of [{code:'insufficient_aal'},{error_code:'insufficient_aal'},{message:'AAL2 session is required to update email or password when MFA is enabled.'},{message:'aal2 session is required'}])assert.equal(core.needsStepUp(e),true);
    for(const e of [null,{},{message:'Invalid login credentials',code:'invalid_credentials'},{message:'New password should be different from the old password.',code:'same_password'},{code:'current_password_required',message:'Current password required when setting new password.'}])assert.equal(core.needsStepUp(e),false);

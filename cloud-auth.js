@@ -198,7 +198,7 @@ $('cloud-new-password').addEventListener('submit',async e=>{
  }
  const {error}=await client.auth.updateUser(ask?{password,current_password:current}:{password});
  if(error&&core.needsStepUp(error)&&!stepUp){
-  const {data:factorData}=await client.auth.mfa.listFactors();const factor=(factorData?.totp||[]).find(f=>!f.status||f.status==='verified');
+  const {data:factorData}=await client.auth.mfa.listFactors();const factor=(factorData?.totp||[]).find(f=>f.status==='verified');
   if(factor){stepUp={factorId:factor.id};show('cloud-mfa-field',true);msg('cloud-auth-status',core.STEP_UP_ASK);$('cloud-mfa-code')?.focus?.();return}   // the typed passwords stay, so nothing is retyped and the recovery is not restarted
  }
  for(const id of ['cloud-new-password-value','cloud-new-password-confirm','cloud-current-password'])if($(id))$(id).value='';
