@@ -9,7 +9,7 @@
  'use strict';
  const ENVIRONMENTS=Object.freeze({
   production:Object.freeze({name:'production',label:'',supabaseUrl:'https://uhribjaiyuwivzqxusur.supabase.co',
-   publishableKey:'sb_publishable_Va2YN7LUG0ZOuwril533WA__PUz_PL_',turnstileSiteKey:'0x4AAAAAAGMQcyUJYuAxhLXp',storagePrefix:'vale-connect-',backupEnvironment:'production',backupPrefix:'vale-connect-cloud-connections-',signupOpen:false,requireCurrentPassword:true}),
+   publishableKey:'sb_publishable_Va2YN7LUG0ZOuwril533WA__PUz_PL_',turnstileSiteKey:'0x4AAAAAAGMQcyUJYuAxhLXp',storagePrefix:'vale-connect-',backupEnvironment:'production',backupPrefix:'vale-connect-cloud-connections-',signupOpen:true,requireCurrentPassword:true}),
   /* dev-only:start */
   development:Object.freeze({name:'development',label:'Development',supabaseUrl:'https://jlprxnmdvoloahssjlnu.supabase.co',
    publishableKey:'sb_publishable_wxT0A5bByFX67J1ut0F-ZA_xITdxwf_',turnstileSiteKey:'0x4AAAAAAF5bZ3cludhKsLJJ',storagePrefix:'vale-connect-dev-',backupEnvironment:'development',backupPrefix:'vale-dev-cloud-connections-',signupOpen:true,requireCurrentPassword:true}),
