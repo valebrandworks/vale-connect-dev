@@ -61,16 +61,52 @@ DO $$ DECLARE r jsonb; ok jsonb := '{"agreement_version": "2026-11-v2", "agreeme
  IF EXISTS (SELECT 1 FROM vale_private.auth_hook_log WHERE coalesce(domain, '') || coalesce(detail, '') ILIKE '%secret.person%') THEN RAISE EXCEPTION 'CHECK: the log holds an address'; END IF;
 END $$;
 
--- 6. Still fail-open on a real internal failure, and still callable only by Supabase Auth.
-ALTER TABLE vale_private.blocked_email_domains RENAME TO blocked_email_domains_x;
-DO $$ BEGIN
- IF vale_private.before_user_created(pg_temp.ev('{}', 'person@gmail.com')) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a hook failure blocked a sign-up'; END IF;
+-- 6. Failure behaviour. The SCREENING fails open (a valid sign-up still goes through when the block list cannot be read); the ACKNOWLEDGEMENT fails closed
+--    (a sign-up without the required data is refused even when the screening is broken, and when the acknowledgement check itself fails).
+SELECT set_config('vale.err6', (SELECT count(*)::text FROM vale_private.auth_hook_log WHERE kind = 'hook_error'), true);
+ALTER TABLE vale_private.blocked_email_domains RENAME TO blocked_email_domains_x;       -- the screening now fails with an internal error
+DO $$ DECLARE ok jsonb := '{"agreement_version": "2026-11-v2", "agreement_terms": true, "age_18_confirmed": true, "us_resident_confirmed": true}'; v jsonb; k text; BEGIN
+ -- valid data: still accepted (fail open for the screening only)
+ IF vale_private.before_user_created(pg_temp.ev(ok, 'person@gmail.com')) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a screening failure blocked a valid sign-up'; END IF;
+ -- missing, wrong or false acknowledgement: refused although the screening is broken
+ IF NOT pg_temp.refused(pg_temp.ev('{}', 'person@gmail.com')) OR NOT pg_temp.refused('{"user": {"email": "person@gmail.com"}}') OR NOT pg_temp.refused('{}') THEN RAISE EXCEPTION 'CHECK: with the screening broken, a sign-up without acknowledgement data was accepted'; END IF;
+ FOREACH k IN ARRAY ARRAY['agreement_version', 'agreement_terms', 'age_18_confirmed', 'us_resident_confirmed'] LOOP
+  IF NOT pg_temp.refused(pg_temp.ev(ok - k, 'person@gmail.com')) THEN RAISE EXCEPTION 'CHECK: with the screening broken, a sign-up without % was accepted', k; END IF;
+  IF k <> 'agreement_version' AND NOT pg_temp.refused(pg_temp.ev(jsonb_set(ok, ARRAY[k], 'false'), 'person@gmail.com')) THEN RAISE EXCEPTION 'CHECK: with the screening broken, % = false was accepted', k; END IF;
+  IF k <> 'agreement_version' AND NOT pg_temp.refused(pg_temp.ev(jsonb_set(ok, ARRAY[k], '"true"'), 'person@gmail.com')) THEN RAISE EXCEPTION 'CHECK: with the screening broken, % = "true" was accepted', k; END IF;
+ END LOOP;
+ FOREACH v IN ARRAY ARRAY['"2026-11-v1"', '""', 'null', '2']::jsonb[] LOOP
+  IF NOT pg_temp.refused(pg_temp.ev(jsonb_set(ok, '{agreement_version}', v), 'person@gmail.com')) THEN RAISE EXCEPTION 'CHECK: with the screening broken, version % was accepted', v; END IF;
+ END LOOP;
+ -- the refusal message is the acknowledgement message, not a fail-open and not a raw error
+ IF NOT coalesce(vale_private.before_user_created(pg_temp.ev('{}', 'person@gmail.com'))->'error'->>'message' LIKE '%18 or older%', false) THEN RAISE EXCEPTION 'CHECK: wrong message when the screening is broken'; END IF;
 END $$;
 ALTER TABLE vale_private.blocked_email_domains_x RENAME TO blocked_email_domains;
+DO $$ BEGIN
+ IF (SELECT count(*) FROM vale_private.auth_hook_log WHERE kind = 'hook_error') <= current_setting('vale.err6')::int THEN RAISE EXCEPTION 'CHECK: the screening failures were not logged'; END IF;
+ -- the screening works again and still refuses a blocked provider first
+ IF NOT coalesce(vale_private.before_user_created(pg_temp.ev('{"agreement_version": "2026-11-v2", "agreement_terms": true, "age_18_confirmed": true, "us_resident_confirmed": true}', 'x@mailinator.com'))->'error'->>'message' LIKE '%email provider%', false) THEN RAISE EXCEPTION 'CHECK: blocking did not resume'; END IF;
+END $$;
+
+-- 7. Who may call what: the hook only Supabase Auth; the acknowledgement helper nobody but the database owner (the hook runs as its owner).
 DO $$ DECLARE r text; BEGIN
  IF NOT has_function_privilege('supabase_auth_admin', 'vale_private.before_user_created(jsonb)', 'EXECUTE') THEN RAISE EXCEPTION 'CHECK: Supabase Auth cannot call the hook'; END IF;
  FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
   IF has_function_privilege(r, 'vale_private.before_user_created(jsonb)', 'EXECUTE') THEN RAISE EXCEPTION 'CHECK: % may call the hook', r; END IF;
+  IF has_function_privilege(r, 'vale_private.signup_acknowledged(jsonb)', 'EXECUTE') THEN RAISE EXCEPTION 'CHECK: % may call the acknowledgement helper', r; END IF;
  END LOOP;
+ IF has_function_privilege('supabase_auth_admin', 'vale_private.signup_acknowledged(jsonb)', 'EXECUTE') THEN RAISE EXCEPTION 'CHECK: Supabase Auth may call the helper directly'; END IF;
+END $$;
+
+-- 8. The acknowledgement check itself failing: the sign-up is refused ("try again"), never accepted, and the failure is logged. (Done last: it replaces the helper inside this transaction.)
+SELECT set_config('vale.err8', (SELECT count(*)::text FROM vale_private.auth_hook_log WHERE kind = 'hook_error'), true);
+CREATE OR REPLACE FUNCTION vale_private.signup_acknowledged(meta jsonb) RETURNS boolean LANGUAGE plpgsql SET search_path TO '' AS $$ BEGIN RAISE EXCEPTION 'injected acknowledgement failure'; END $$;
+DO $$ DECLARE r jsonb; BEGIN
+ r := vale_private.before_user_created(pg_temp.ev('{"agreement_version": "2026-11-v2", "agreement_terms": true, "age_18_confirmed": true, "us_resident_confirmed": true}', 'person@gmail.com'));
+ IF NOT coalesce((r->'error'->>'http_code') = '400' AND (r->'error'->>'message') LIKE '%try again%', false) THEN RAISE EXCEPTION 'CHECK: a failing acknowledgement check did not refuse the sign-up: %', r; END IF;
+ IF r::text ILIKE '%person@gmail%' OR r::text ILIKE '%injected%' THEN RAISE EXCEPTION 'CHECK: the refusal repeats the address or the internal error'; END IF;
+ IF NOT pg_temp.refused(pg_temp.ev('{}', 'person@gmail.com')) THEN RAISE EXCEPTION 'CHECK: a failing acknowledgement check let an unacknowledged sign-up through'; END IF;
+ IF (SELECT count(*) FROM vale_private.auth_hook_log WHERE kind = 'hook_error' AND detail LIKE '%injected acknowledgement failure%') < 2 OR (SELECT count(*) FROM vale_private.auth_hook_log WHERE kind = 'hook_error') - current_setting('vale.err8')::int < 2 THEN RAISE EXCEPTION 'CHECK: the failures were not logged'; END IF;
+ IF EXISTS (SELECT 1 FROM vale_private.auth_hook_log WHERE coalesce(domain, '') || coalesce(detail, '') ILIKE '%person@%') THEN RAISE EXCEPTION 'CHECK: the log holds an address'; END IF;
 END $$;
 ROLLBACK;

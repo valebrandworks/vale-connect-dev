@@ -75,7 +75,9 @@ assert.match(read('report.html'), /<a href="terms\.html">Terms<\/a> · <a href="
 assert.doesNotMatch(read('sw.js'), /terms\.html|privacy\.html/, 'nothing to precache: the pages load from the network like the rest of the site');
 // ---------- The server-side acknowledgement check accepts exactly the version the page sends ----------
 const ackDb = read('supabase/migrations/20261124000000_require_signup_acknowledgement.sql'), core = require('../auth-core.js');
-assert.match(ackDb, new RegExp("accepted_versions text\\[\\] := ARRAY\\['" + core.AGREEMENT_VERSION + "'\\]"), 'the hook accepts the agreement version the sign-up page sends');
-for (const key of ['agreement_terms', 'age_18_confirmed', 'us_resident_confirmed']) assert.ok(ackDb.includes("meta->'" + key + "' IS DISTINCT FROM 'true'::jsonb"), 'the hook requires ' + key);
+assert.match(ackDb, new RegExp("ARRAY\\['" + core.AGREEMENT_VERSION + "'\\]"), 'the hook accepts the agreement version the sign-up page sends');
+for (const key of ['agreement_terms', 'age_18_confirmed', 'us_resident_confirmed']) assert.ok(ackDb.includes("meta->'" + key + "' IS NOT DISTINCT FROM 'true'::jsonb"), 'the hook requires ' + key);
+assert.match(ackDb, /Disposable-provider screening: fails OPEN[\s\S]*Acknowledgement: fails CLOSED/, 'screening fails open, the acknowledgement fails closed');
+assert.doesNotMatch(ackDb.slice(ackDb.indexOf('EXCEPTION WHEN OTHERS THEN\n -- Anything unexpected')), /RETURN '\{\}'::jsonb/, 'the outer failure handler never accepts a sign-up');
 assert.match(read('cloud-auth.js'), /agreement_version:agreement\.version,agreement_terms:agreement\.terms,age_18_confirmed:agreement\.age18,us_resident_confirmed:agreement\.usResident/, 'the page sends exactly the fields the hook checks');
 console.log('PASS: legal pages (no placeholders or review flags; approved Terms decisions preserved; no copyright-agent or renewed-acceptance claim; privacy statements accurate about processing, cookies and cleanup; retention periods equal the database files; both documents linked before sign-up)');

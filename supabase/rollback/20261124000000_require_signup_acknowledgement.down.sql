@@ -1,4 +1,4 @@
--- Rollback of 20261124000000_require_signup_acknowledgement.sql: puts the hook back as 20261123000000_add_auth_hardening defined it
+-- Rollback of 20261124000000_require_signup_acknowledgement.sql: puts the hook back as 20261123000000_add_auth_hardening defined it and removes the acknowledgement helper function
 -- (blocked-provider refusal only, fail open). Safe to run while the hook is registered: the function is replaced, never dropped.
 BEGIN;
 CREATE OR REPLACE FUNCTION vale_private.before_user_created(event jsonb) RETURNS jsonb
@@ -19,4 +19,6 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 REVOKE ALL ON FUNCTION vale_private.before_user_created(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION vale_private.before_user_created(jsonb) TO supabase_auth_admin;
+-- The previous hook does not call the helper, so it can go now (the hook was replaced above, never dropped).
+DROP FUNCTION IF EXISTS vale_private.signup_acknowledged(jsonb);
 COMMIT;

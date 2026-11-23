@@ -61,6 +61,8 @@ const withoutRule = (find, replace = '') => { if (!recordShare.includes(find)) t
 const ACK_UP = 'supabase/migrations/20261124000000_require_signup_acknowledgement.sql', ACK_DOWN = 'supabase/rollback/20261124000000_require_signup_acknowledgement.down.sql';
 // The hook as the acknowledgement migration defines it, with one rule changed (to prove the acknowledgement tests notice).
 const ackHook = (find, replace = '') => { const t = sql(ACK_UP).replace(/\r\n/g, '\n'), a = t.indexOf('CREATE OR REPLACE FUNCTION vale_private.before_user_created('), b = t.indexOf('\nEND $$;', a) + 8; const body = t.slice(a, b); if (!body.includes(find)) throw new Error('Acknowledgement rule not found: ' + find); return body.replace(find, replace); };
+// The acknowledgement helper function as the migration defines it, with one rule changed.
+const ackHelper = (find, replace = '') => { const t = sql(ACK_UP).replace(/\r\n/g, '\n'), a = t.indexOf('CREATE FUNCTION vale_private.signup_acknowledged('), b = t.indexOf('\n$$;', a) + 4; const body = t.slice(a, b).replace(/^CREATE FUNCTION/, 'CREATE OR REPLACE FUNCTION'); if (!body.includes(find)) throw new Error('Acknowledgement helper rule not found: ' + find); return body.replace(find, replace); };
 const AH_UP = 'supabase/migrations/20261123000000_add_auth_hardening.sql', AH_DOWN = 'supabase/rollback/20261123000000_add_auth_hardening.down.sql', AH_CLEAN = 'supabase/rollback/20261123000000_add_auth_hardening.cleanup.sql';
 const GL_UP = 'supabase/migrations/20261122010000_add_global_rate_limits.sql', GL_DOWN = 'supabase/rollback/20261122010000_add_global_rate_limits.down.sql', GL_CLEAN = 'supabase/rollback/20261122010000_add_global_rate_limits.cleanup.sql';
 // submit_card_report from the global-limits migration, with one rule changed (to prove the global tests notice).
@@ -217,14 +219,17 @@ const brokenRules = [
   ['global: the lock helper is callable by the server role', GLOBAL, 'GRANT EXECUTE ON FUNCTION vale_private.try_lock(text) TO service_role'],
   ['auth: block list ignored', AUTH, 'CREATE OR REPLACE FUNCTION vale_private.email_domain_blocked(p_domain text) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$'],
   ['auth: allow list ignored', AUTH, 'CREATE OR REPLACE FUNCTION vale_private.email_domain_blocked(p_domain text) RETURNS boolean LANGUAGE sql AS $$ SELECT EXISTS (SELECT 1 FROM vale_private.blocked_email_domains b WHERE b.domain = lower(p_domain)) $$'],
-  ['ack: no check at all', ACK, ackHook("IF jsonb_typeof(meta->'agreement_version')", "IF false AND jsonb_typeof(meta->'agreement_version')")],
-  ['ack: version ignored', ACK, ackHook("jsonb_typeof(meta->'agreement_version') IS DISTINCT FROM 'string' OR NOT ((meta->>'agreement_version') = ANY (accepted_versions))", 'false')],
-  ['ack: age confirmation ignored', ACK, ackHook("OR meta->'age_18_confirmed' IS DISTINCT FROM 'true'::jsonb")],
-  ['ack: residency confirmation ignored', ACK, ackHook("OR meta->'us_resident_confirmed' IS DISTINCT FROM 'true'::jsonb")],
-  ['ack: terms acceptance ignored', ACK, ackHook("OR meta->'agreement_terms' IS DISTINCT FROM 'true'::jsonb")],
-  ['ack: the text "true" counts as true', ACK, ackHook("meta->'age_18_confirmed' IS DISTINCT FROM 'true'::jsonb", "meta->>'age_18_confirmed' IS DISTINCT FROM 'true'")],
+  ['ack: no check at all', ACK, ackHelper("SELECT coalesce((meta->>'agreement_version') = ANY (ARRAY['2026-11-v2']), false)", "SELECT true OR coalesce((meta->>'agreement_version') = ANY (ARRAY['2026-11-v2']), false)")],
+  ['ack: version ignored', ACK, ackHelper("SELECT coalesce((meta->>'agreement_version') = ANY (ARRAY['2026-11-v2']), false)\n    AND", "SELECT true\n    AND")],
+  ['ack: age confirmation ignored', ACK, ackHelper("\n    AND meta->'age_18_confirmed' IS NOT DISTINCT FROM 'true'::jsonb")],
+  ['ack: residency confirmation ignored', ACK, ackHelper("\n    AND meta->'us_resident_confirmed' IS NOT DISTINCT FROM 'true'::jsonb")],
+  ['ack: terms acceptance ignored', ACK, ackHelper("\n    AND meta->'agreement_terms' IS NOT DISTINCT FROM 'true'::jsonb")],
+  ['ack: the text "true" counts as true', ACK, ackHelper("meta->'age_18_confirmed' IS NOT DISTINCT FROM 'true'::jsonb", "meta->>'age_18_confirmed' IS NOT DISTINCT FROM 'true'")],
   ['ack: blocked providers checked after the acknowledgement', ACK, ackHook("IF dom <> '' AND vale_private.email_domain_blocked(dom) THEN", "IF false THEN")],
+  ['ack: a screening failure lets the sign-up through without the acknowledgement', ACK, ackHook("  EXCEPTION WHEN OTHERS THEN NULL; END;\n END;\n -- 2.", "  EXCEPTION WHEN OTHERS THEN NULL; END;\n  RETURN '{}'::jsonb;\n END;\n -- 2.")],
+  ['ack: a failing acknowledgement check lets the sign-up through (fail open)', ACK, ackHook(" RETURN jsonb_build_object('error', jsonb_build_object('http_code', 400,\n  'message', 'We couldn''t check your sign-up just now. Please try again in a moment.'));", " RETURN '{}'::jsonb;")],
   ['ack: server role can call the hook', ACK, 'GRANT EXECUTE ON FUNCTION vale_private.before_user_created(jsonb) TO service_role'],
+  ['ack: server role can call the acknowledgement helper', ACK, 'GRANT EXECUTE ON FUNCTION vale_private.signup_acknowledged(jsonb) TO service_role'],
   ['auth: server role can call the hook', AUTH, 'GRANT EXECUTE ON FUNCTION vale_private.before_user_created(jsonb) TO service_role'],
   ['auth: anyone can list purge candidates', AUTH, 'GRANT EXECUTE ON FUNCTION public.unconfirmed_purge_candidates(integer, integer, uuid) TO authenticated'],
   ['auth: block list readable by the server role', AUTH, 'GRANT SELECT ON vale_private.blocked_email_domains TO service_role'],
@@ -361,6 +366,7 @@ await glDb.close();
 // re-applying restores the same structure.
 const ahDb = await rebuild(repo);
 const ahBefore = await snapshotOf(ahDb);
+await ahDb.exec(sql(ACK_DOWN));   // rollbacks run newest first: the acknowledgement migration is rolled back before auth hardening
 await ahDb.exec("INSERT INTO vale_private.allowed_email_domains(domain, reason) VALUES ('keep-me.example', 'kept through rollback'); INSERT INTO vale_private.auth_hook_log(kind, domain) VALUES ('blocked', 'keep.example');");
 await ahDb.exec(sql(AH_DOWN));
 const ahDown = await snapshotOf(ahDb);
@@ -380,11 +386,14 @@ const ackBefore = await snapshotOf(ackDb);
 await ackDb.exec(sql(ACK_DOWN));
 const hookDef = async database => (await database.query(`SELECT pg_get_functiondef('vale_private.before_user_created(jsonb)'::regprocedure) AS d`)).rows[0].d;
 await ackOld.exec(sql(ACK_DOWN));
-report(/accepted_versions/.test(await hookDef(await (async () => { const d = await rebuild(repo); return d; })())) && !/accepted_versions/.test(await hookDef(ackDb)), 'acknowledgement rollback: removes the acknowledgement rule from the hook');
+const helperExists = async database => (await database.query("SELECT to_regprocedure('vale_private.signup_acknowledged(jsonb)') IS NOT NULL AS e")).rows[0].e;
+const ackFull = await rebuild(repo);
+report(await helperExists(ackFull) && /signup_acknowledged/.test(await hookDef(ackFull)) && !(await helperExists(ackDb)) && !/signup_acknowledged/.test(await hookDef(ackDb)), 'acknowledgement rollback: removes the acknowledgement rule and its helper function');
+await ackFull.close();
 const ackPrev = await rebuild(repo);
 await ackPrev.exec(sql(AH_DOWN)); await ackPrev.exec(sql(AH_CLEAN)); await ackPrev.exec(sql(AH_UP));
 report(await hookDef(ackDb) === await hookDef(ackPrev), 'acknowledgement rollback: puts back exactly the hook of the auth hardening migration');
-const withoutHook = snap => JSON.stringify({ ...snap, functions: snap.functions.filter(fn => !/before_user_created/.test(fn.signature)) });
+const withoutHook = snap => JSON.stringify({ ...snap, functions: snap.functions.filter(fn => !/before_user_created|signup_acknowledged/.test(fn.signature)) });
 report(withoutHook(await snapshotOf(ackDb)) === withoutHook(ackBefore), 'acknowledgement rollback: changes nothing else');
 await ackDb.exec(sql(ACK_UP));
 report(noPosition(await snapshotOf(ackDb)) === noPosition(ackBefore), 'acknowledgement: re-applying after rollback restores the same structure');
