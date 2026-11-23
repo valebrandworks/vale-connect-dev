@@ -6,19 +6,20 @@
  const PASSWORD_MIN=10;                         // the same minimum as the server's setting
  const PASSWORD_MAX_BYTES=72;                    // Supabase Auth hashes with bcrypt, which uses at most 72 bytes (verified on development before release)
  const byteLength=v=>typeof TextEncoder==='function'?new TextEncoder().encode(String(v||'')).length:String(v||'').length;
- const AGREEMENT_VERSION='2026-11-v1';
+ const AGREEMENT_VERSION='2026-11-v2';          // which wording and which Terms/Privacy text a person acknowledged (recorded with the account)
  const PRIVACY_URL='privacy.html';
- const TERMS_URL=null;                           // set to 'terms.html' when the Terms of Service are published
+ const TERMS_URL='terms.html';
  // Public settings for this web address (config.js). Not a security boundary: the server checks everything again.
  const config=root.ValeConfig||(typeof require==='function'?require('./config.js'):null);
  const siteKey=host=>config?.forHost(host)?.turnstileSiteKey||null;
  const emailOk=v=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v||'').trim());
 
- // The agreement shown at sign-up. Terms are added automatically once TERMS_URL is set.
+ // The acknowledgement shown at sign-up: age, residency, Terms and Privacy Policy, each linked and readable before the account exists.
+ // It records only that this wording was ticked (version, time, and that age and residency were confirmed); nothing is checked against a location.
  function agreement(termsUrl=TERMS_URL){
   return termsUrl
-   ?{parts:['I agree to the ',{text:'Terms of Service',href:termsUrl},' and have read the ',{text:'Privacy Policy',href:PRIVACY_URL},'.'],version:AGREEMENT_VERSION,terms:true}
-   :{parts:['I have read and accept the ',{text:'Privacy Policy',href:PRIVACY_URL},'.'],version:AGREEMENT_VERSION,terms:false};
+   ?{parts:['I’m 18 or older and live in the United States. I agree to the ',{text:'Terms of Service',href:termsUrl},' and have read the ',{text:'Privacy Policy',href:PRIVACY_URL},'.'],version:AGREEMENT_VERSION,terms:true,age18:true,usResident:true}
+   :{parts:['I’m 18 or older and live in the United States, and I have read the ',{text:'Privacy Policy',href:PRIVACY_URL},'.'],version:AGREEMENT_VERSION,terms:false,age18:true,usResident:true};
  }
 
  function checkSignIn({email,password}){
@@ -37,7 +38,7 @@
  function checkSignUp({email,password,confirm,agreed}){
   if(!emailOk(email))return 'Enter your email address.';
   const bad=checkNewPassword(password,confirm);if(bad)return bad;
-  if(!agreed)return 'Tick the box to accept the Privacy Policy.';
+  if(!agreed)return 'Tick the box to confirm you’re 18 or older, live in the United States, and agree to the Terms of Service and Privacy Policy.';
   return '';
  }
 
