@@ -49,7 +49,7 @@ assert.ok(prodKeys.every(k=>!devKeys.includes(k)),'no shared storage names');
 
 // ---------- Pages: content security policy, script integrity, no inline code ----------
 const SRI='integrity="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK" crossorigin="anonymous"';
-for(const f of ['index.html','p.html','report.html','admin.html','privacy.html','offline.html']){
+for(const f of ['index.html','p.html','report.html','admin.html','privacy.html','terms.html','offline.html']){
  const t=read(f),m=t.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/);
  assert.ok(m,f+' has a content security policy');const csp=m[1];
  for(const rule of ["default-src 'none'","base-uri 'none'","form-action 'none'"])assert.ok(csp.includes(rule),f+': '+rule);
@@ -61,7 +61,7 @@ for(const f of ['index.html','p.html','report.html','admin.html','privacy.html',
  for(const tag of t.match(/<script src="https:[^>]*>/g)||[])assert.ok(tag.includes(SRI)&&tag.includes('supabase-js@2.118.0'),f+': the outside library is pinned and integrity-checked');
 }
 assert.match(read('p.html'),/A product of VALE Brandworks LLC|a product of VALE Brandworks LLC/);assert.match(read('index.html'),/A product of VALE Brandworks LLC/);
-assert.match(read('report.html'),/a product of VALE Brandworks LLC/);assert.match(read('privacy.html'),/A product of VALE Brandworks LLC/);
+assert.match(read('report.html'),/a product of VALE Brandworks LLC/);assert.match(read('privacy.html'),/A product of VALE Brandworks LLC/);assert.match(read('terms.html'),/A product of VALE Brandworks LLC/);
 assert.match(read('index.html'),/<meta name="robots" content="noindex">/,'the app is kept out of search engines until launch');
 
 // ---------- Release builder (in memory) ----------

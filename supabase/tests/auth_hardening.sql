@@ -42,11 +42,11 @@ END $$;
 
 -- 2. The hook (called as its owner; who may call it is asserted below): refuses with a clear message, logs the domain only, never refuses anything else.
 DO $$ DECLARE r jsonb; BEGIN
- r := vale_private.before_user_created('{"user": {"email": "Someone@Guerrillamail.com"}, "metadata": {"ip_address": "203.0.113.9"}}'::jsonb);
+ r := vale_private.before_user_created('{"user": {"email": "Someone@Guerrillamail.com", "user_metadata": {"agreement_version": "2026-11-v2", "agreement_terms": true, "age_18_confirmed": true, "us_resident_confirmed": true}}, "metadata": {"ip_address": "203.0.113.9"}}'::jsonb);
  IF (r->'error'->>'http_code') <> '400' OR coalesce(r->'error'->>'message', '') = '' THEN RAISE EXCEPTION 'CHECK: a disposable address was not refused with a message: %', r; END IF;
  IF r::text LIKE '%Someone%' THEN RAISE EXCEPTION 'CHECK: the refusal repeats the address'; END IF;
- IF vale_private.before_user_created('{"user": {"email": "person@gmail.com"}}'::jsonb) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a normal address was refused'; END IF;
- IF vale_private.before_user_created('{"user": {}}'::jsonb) <> '{}'::jsonb OR vale_private.before_user_created('{}'::jsonb) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a request without an address was refused'; END IF;
+ IF vale_private.before_user_created('{"user": {"email": "person@gmail.com", "user_metadata": {"agreement_version": "2026-11-v2", "agreement_terms": true, "age_18_confirmed": true, "us_resident_confirmed": true}}}'::jsonb) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a normal address was refused'; END IF;
+ IF vale_private.before_user_created('{"user": {"user_metadata": {"agreement_version": "2026-11-v2", "agreement_terms": true, "age_18_confirmed": true, "us_resident_confirmed": true}}}'::jsonb) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a request without an address was refused'; END IF;
 END $$;
 DO $$ BEGIN
  IF (SELECT count(*) FROM vale_private.auth_hook_log WHERE kind = 'blocked' AND domain = 'guerrillamail.com') < 1 THEN RAISE EXCEPTION 'CHECK: the refusal was not logged by domain'; END IF;
@@ -56,18 +56,18 @@ END $$;
 SELECT set_config('vale.err0', (SELECT count(*)::text FROM vale_private.auth_hook_log WHERE kind = 'hook_error'), true), set_config('vale.blk0', (SELECT count(*)::text FROM vale_private.auth_hook_log WHERE kind = 'blocked' AND domain = 'guerrillamail.com'), true);
 ALTER TABLE vale_private.blocked_email_domains RENAME TO blocked_email_domains_x;
 DO $$ BEGIN
- IF vale_private.before_user_created('{"user": {"email": "person@mailinator.com"}}'::jsonb) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a hook failure blocked a sign-up'; END IF;
+ IF vale_private.before_user_created('{"user": {"email": "person@mailinator.com", "user_metadata": {"agreement_version": "2026-11-v2", "agreement_terms": true, "age_18_confirmed": true, "us_resident_confirmed": true}}}'::jsonb) <> '{}'::jsonb THEN RAISE EXCEPTION 'CHECK: a hook failure blocked a sign-up'; END IF;
 END $$;
 ALTER TABLE vale_private.blocked_email_domains_x RENAME TO blocked_email_domains;
 DO $$ BEGIN
  IF (SELECT count(*) FROM vale_private.auth_hook_log WHERE kind = 'hook_error' AND detail <> '') - current_setting('vale.err0')::int <> 1 THEN RAISE EXCEPTION 'CHECK: the hook failure was not logged'; END IF;
- IF vale_private.before_user_created('{"user": {"email": "person@mailinator.com"}}'::jsonb)->'error' IS NULL THEN RAISE EXCEPTION 'CHECK: blocking did not resume after the failure'; END IF;
+ IF vale_private.before_user_created('{"user": {"email": "person@mailinator.com", "user_metadata": {"agreement_version": "2026-11-v2", "agreement_terms": true, "age_18_confirmed": true, "us_resident_confirmed": true}}}'::jsonb)->'error' IS NULL THEN RAISE EXCEPTION 'CHECK: blocking did not resume after the failure'; END IF;
 END $$;
 -- Only Supabase Auth may call the hook and the helper.
 DO $$ DECLARE r text; BEGIN
  FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
   EXECUTE format('SET LOCAL ROLE %I', r);
-  BEGIN PERFORM vale_private.before_user_created('{"user": {"email": "x@mailinator.com"}}'::jsonb); RAISE EXCEPTION 'CHECK: % called the hook', r;
+  BEGIN PERFORM vale_private.before_user_created('{"user": {"email": "x@mailinator.com", "user_metadata": {"agreement_version": "2026-11-v2", "agreement_terms": true, "age_18_confirmed": true, "us_resident_confirmed": true}}}'::jsonb); RAISE EXCEPTION 'CHECK: % called the hook', r;
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
   EXECUTE 'RESET ROLE';
  END LOOP;

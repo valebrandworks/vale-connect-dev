@@ -123,7 +123,7 @@ async function signUp(){
  setBusy(true);msg('cloud-auth-status','Creating your account…');
  const agreement=core.agreement();
  try{
-  const {data,error}=await client.auth.signUp({email,password,options:{emailRedirectTo:redirect(),data:{agreement_version:agreement.version,agreement_terms:agreement.terms,agreed_at:new Date().toISOString()},...authCheck.options()}});
+  const {data,error}=await client.auth.signUp({email,password,options:{emailRedirectTo:redirect(),data:{agreement_version:agreement.version,agreement_terms:agreement.terms,age_18_confirmed:agreement.age18,us_resident_confirmed:agreement.usResident,agreed_at:new Date().toISOString()},...authCheck.options()}});
   $('cloud-password').value='';if($('cloud-password-confirm'))$('cloud-password-confirm').value='';
   if(error){const text=core.message(error,'signup');if(text===core.CHECK_EMAIL)setMode('confirm',{keepMessage:true});msg('cloud-auth-status',text);return}
   if(data?.session){msg('cloud-auth-status','Account created and signed in.');return}

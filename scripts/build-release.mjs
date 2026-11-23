@@ -64,7 +64,6 @@ const REPLACE = {
   'p.html': [['content="VALE Dev"', 'content="VALE Connect"']],
   'offline.html': [['VALE Connect Development — Offline', 'VALE Connect — Offline'], ['alt="VALE Connect development app"', 'alt="VALE Connect app"'],
     [/VALE Connect · Development · Build \d+/, 'VALE Connect']],
-  'privacy.html': [['Development draft.', 'Draft.']],
   'manifest.webmanifest': [['"name": "VALE Connect Development"', '"name": "VALE Connect"'], ['"short_name": "VALE Dev"', '"short_name": "VALE Connect"'],
     ['"description": "VALE Connect development app: profiles, cards and professional connections."', '"description": "VALE Connect: digital business cards and professional connections. A product of VALE Brandworks LLC."']],
   'sw.js': [['/* Development scope only. Cache', '/* Cache'], ["const CACHE_PREFIX='vale-connect-dev-pwa-';", "const CACHE_PREFIX='vale-connect-pwa-';"],
